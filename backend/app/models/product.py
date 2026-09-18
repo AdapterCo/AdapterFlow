@@ -29,6 +29,7 @@ class Product(Base):
     supplier_data: Mapped[List["ProductSupplierData"]] = relationship("ProductSupplierData", back_populates="product", cascade="all, delete-orphan")
     images: Mapped[List["ProductImage"]] = relationship("ProductImage", back_populates="product", cascade="all, delete-orphan")
     channel_prices: Mapped[List["ProductChannelPrice"]] = relationship("ProductChannelPrice", back_populates="product", cascade="all, delete-orphan")
+    marketplace_listings = relationship("MarketplaceListing", back_populates="product", cascade="all, delete-orphan")
 
 class ProductSupplierData(Base):
     __tablename__ = "product_supplier_data"

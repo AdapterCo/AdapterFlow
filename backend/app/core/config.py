@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "AdapterFlow"
     API_V1_PREFIX: str = "/api/v1"
 
+    # Mercado Livre Integration
+    MERCADOLIVRE_APP_ID: str | None = None
+    MERCADOLIVRE_CLIENT_SECRET: str | None = None
+    MERCADOLIVRE_REDIRECT_URI: str = "http://localhost:3099/marketplaces/callback"
+
     model_config = SettingsConfigDict(env_file=".env")
 
 settings = Settings()

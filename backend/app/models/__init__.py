@@ -3,3 +3,4 @@ from app.models.product import Product, ProductSupplierData, SupplierProductPric
 from app.models.product_image import ProductImage
 from app.models.import_job import ImportJob, ImportItem
 from app.models.pricing import PricingProfile, ProductChannelPrice
+from app.models.marketplace import MarketplaceAccount, MarketplaceListing

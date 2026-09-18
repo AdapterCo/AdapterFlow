@@ -231,3 +231,74 @@ export interface ProductChannelPrice {
   created_at: string;
   updated_at?: string | null;
 }
+
+export interface MarketplaceAccount {
+  id: string;
+  marketplace: string;
+  account_name: string;
+  seller_id: string;
+  site_id: string;
+  is_active: boolean;
+  token_expires_at: string;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface MarketplaceChannelStatus {
+  marketplace: string;
+  name: string;
+  is_configured: boolean;
+  is_connected: boolean;
+  accounts_count: number;
+  auth_url?: string | null;
+}
+
+export interface MarketplacesOverviewResponse {
+  channels: MarketplaceChannelStatus[];
+  accounts: MarketplaceAccount[];
+}
+
+export interface CategoryPredictionItem {
+  category_id: string;
+  category_name: string;
+  domain_id?: string | null;
+  domain_name?: string | null;
+}
+
+export interface PublishProductRequest {
+  product_id: string;
+  account_id: string;
+  pricing_profile_id?: string | null;
+  title?: string | null;
+  category_id: string;
+  listing_type_id: string;
+  available_quantity: number;
+  condition: string;
+}
+
+export interface MarketplaceListing {
+  id: string;
+  product_id: string;
+  product_name?: string | null;
+  account_id: string;
+  account_name?: string | null;
+  marketplace: string;
+  external_listing_id?: string | null;
+  title: string;
+  price: string;
+  available_quantity: number;
+  category_id: string;
+  listing_type_id: string;
+  status: string;
+  permalink?: string | null;
+  error_message?: string | null;
+  last_synced_at?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface MarketplaceListingListResponse {
+  items: MarketplaceListing[];
+  total: number;
+}
+

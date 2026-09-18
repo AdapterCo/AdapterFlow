@@ -122,9 +122,14 @@ AdapterFlow/
 ## Integrações
 
 ### Mercado Livre
-STATUS: NOT_IMPLEMENTED
-Documentação oficial: TODO: consultar documentação oficial
-Última verificação: N/A
+STATUS: IMPLEMENTED (Fase 3)
+Documentação oficial: https://developers.mercadolivre.com.br/
+Última verificação: 2026-09-18
+- OAuth 2.0 Authorization Code Flow com refresh automático de tokens (MLB).
+- Predição inteligente de categorias via `/sites/MLB/domain_discovery/search`.
+- Validação prévia de anúncios via `POST /items/validate`.
+- Publicação de anúncios via `POST /items`.
+- Modelos: `MarketplaceAccount` e `MarketplaceListing`.
 
 ### Shopee
 STATUS: NOT_IMPLEMENTED
@@ -149,7 +154,7 @@ Documentação oficial: TODO: consultar documentação oficial
 |---|---|---|
 | 1 | Infraestrutura, importação PDF, produtos, fornecedores | COMPLETED |
 | 2 | Motor de precificação | COMPLETED |
-| 3 | Mercado Livre | NOT_STARTED |
+| 3 | Mercado Livre | COMPLETED |
 | 4 | Shopee | NOT_STARTED |
 | 5 | Amazon | NOT_STARTED |
 | 6 | TikTok Shop | NOT_STARTED |

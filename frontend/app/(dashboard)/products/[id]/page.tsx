@@ -36,6 +36,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { DREBreakdownCard } from "@/components/pricing/dre-breakdown";
+import { PublishDialog } from "@/components/marketplaces/publish-dialog";
+import { ProductChannelPrice } from "@/types";
+import { UploadCloud } from "lucide-react";
 
 export default function ProductDetailPage({
   params,
@@ -56,6 +59,8 @@ export default function ProductDetailPage({
   const [selectedProfileId, setSelectedProfileId] = useState<string>("");
   const [manualPriceInput, setManualPriceInput] = useState<string>("");
   const [expandedDreId, setExpandedDreId] = useState<string | null>(null);
+  const [publishDialogOpen, setPublishDialogOpen] = useState<boolean>(false);
+  const [selectedPriceForPublish, setSelectedPriceForPublish] = useState<ProductChannelPrice | null>(null);
 
   const handleCalculate = async () => {
     if (!selectedProfileId) {
@@ -410,7 +415,21 @@ export default function ProductDetailPage({
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1.5">
+                            {cp.channel === "MERCADO_LIVRE" && (
+                              <Button
+                                size="sm"
+                                variant="default"
+                                className="bg-yellow-500 hover:bg-yellow-600 text-black font-semibold h-8 text-xs"
+                                onClick={() => {
+                                  setSelectedPriceForPublish(cp);
+                                  setPublishDialogOpen(true);
+                                }}
+                              >
+                                <UploadCloud className="h-3.5 w-3.5 mr-1" />
+                                Publicar no Meli
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="sm"
@@ -526,6 +545,15 @@ export default function ProductDetailPage({
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Modal de Publicação no Mercado Livre */}
+      <PublishDialog
+        open={publishDialogOpen}
+        onOpenChange={setPublishDialogOpen}
+        product={product}
+        selectedChannelPrice={selectedPriceForPublish}
+      />
     </div>
   );
 }
+
