@@ -142,7 +142,7 @@ Documentação oficial: TODO: consultar documentação oficial
 
 | Fase | Descrição | Status |
 |---|---|---|
-| 1 | Infraestrutura, importação PDF, produtos, fornecedores | IN_PROGRESS |
+| 1 | Infraestrutura, importação PDF, produtos, fornecedores | COMPLETED |
 | 2 | Motor de precificação | NOT_STARTED |
 | 3 | Mercado Livre | NOT_STARTED |
 | 4 | Shopee | NOT_STARTED |
@@ -185,3 +185,7 @@ Documentação oficial: TODO: consultar documentação oficial
 | 2026-09-17 | Stack definida: FastAPI + Next.js 15 + PostgreSQL 16 + PyMuPDF |
 | 2026-09-17 | PyMuPDF escolhido para extração de texto + imagens de PDF |
 | 2026-09-17 | SQLAlchemy async com asyncpg como driver |
+| 2026-09-17 | Migration inicial 001_initial_phase1 criada com 7 tabelas e DDL PostgreSQL validado |
+| 2026-09-17 | Pytest suite com testes de normalização de preço, quantidade e sanitização de nomes passando |
+| 2026-09-17 | Next.js 15 compilado com sucesso com todas as 15 rotas e componentes UI shadcn |
+| 2026-09-17 | Fase 1 concluída com sucesso |
