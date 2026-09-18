@@ -57,7 +57,7 @@ docker compose exec backend alembic upgrade head
 ```
 
 Acesse:
-- Frontend: http://localhost:3000
+- Frontend: http://localhost:3099
 - Backend API: http://localhost:8000
 - Swagger: http://localhost:8000/docs
 
