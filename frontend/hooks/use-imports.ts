@@ -6,6 +6,11 @@ export function useImports(skip = 0, limit = 100) {
   return useQuery({
     queryKey: ["imports", skip, limit],
     queryFn: () => apiClient.get<PaginatedResponse<ImportJob>>(`/api/v1/imports?skip=${skip}&limit=${limit}`),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const hasProcessing = data?.items?.some((i) => i.status === "PROCESSING" || i.status === "UPLOADED");
+      return hasProcessing ? 3000 : false;
+    },
   });
 }
 

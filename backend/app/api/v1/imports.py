@@ -1,6 +1,9 @@
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Response, Body
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Response, Body, BackgroundTasks
 from uuid import UUID
 from typing import Optional
+import logging
+import mimetypes
+
 from app.schemas.import_job import (
     ImportJobResponse,
     ImportJobListResponse,
@@ -11,30 +14,60 @@ from app.schemas.import_job import (
 )
 from app.services.import_service import ImportService
 from app.repositories.import_repository import ImportRepository
+from app.repositories.supplier_repository import SupplierRepository
 from app.api.deps import DBSession, Storage
-import mimetypes
 
 router = APIRouter()
 service = ImportService()
 repo = ImportRepository()
+supplier_repo = SupplierRepository()
+logger = logging.getLogger(__name__)
 
-async def _handle_upload(db: DBSession, storage: Storage, supplier_id: UUID, file: UploadFile):
-    if not file.filename.endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported")
-    
-    content = await file.read()
-    job = await service.create_import(db, supplier_id, file.filename, content, storage)
-    await service.process_import(db, job.id, storage)
-    return await repo.get_job(db, job.id)
+async def _handle_upload(
+    background_tasks: BackgroundTasks,
+    db: DBSession,
+    storage: Storage,
+    supplier_id: UUID,
+    file: UploadFile
+):
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Apenas arquivos no formato PDF são aceitos.")
+
+    supplier = await supplier_repo.get_by_id(db, supplier_id)
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Fornecedor selecionado não foi encontrado no sistema.")
+
+    try:
+        content = await file.read()
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="O arquivo enviado está vazio.")
+
+        job = await service.create_import(db, supplier_id, file.filename, content, storage)
+        
+        # Dispatch background extraction task — NEVER block the HTTP request!
+        background_tasks.add_task(service.process_import_background, job.id, storage)
+        
+        # Fetch fresh job with supplier relation eagerly loaded
+        fresh_job = await repo.get_job(db, job.id)
+        return fresh_job or job
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Falha inesperada no upload da importação: %s", str(e))
+        raise HTTPException(status_code=500, detail=f"Erro interno ao processar upload: {str(e)}")
 
 @router.post("", response_model=ImportJobResponse)
 @router.post("/", response_model=ImportJobResponse, include_in_schema=False)
-async def upload_import(db: DBSession, storage: Storage, supplier_id: UUID = Form(...), file: UploadFile = File(...)):
-    return await _handle_upload(db, storage, supplier_id, file)
-
 @router.post("/upload", response_model=ImportJobResponse)
-async def upload_import_alias(db: DBSession, storage: Storage, supplier_id: UUID = Form(...), file: UploadFile = File(...)):
-    return await _handle_upload(db, storage, supplier_id, file)
+async def upload_import(
+    background_tasks: BackgroundTasks,
+    db: DBSession,
+    storage: Storage,
+    supplier_id: UUID = Form(...),
+    file: UploadFile = File(...)
+):
+    return await _handle_upload(background_tasks, db, storage, supplier_id, file)
 
 @router.get("", response_model=ImportJobListResponse)
 @router.get("/", response_model=ImportJobListResponse, include_in_schema=False)

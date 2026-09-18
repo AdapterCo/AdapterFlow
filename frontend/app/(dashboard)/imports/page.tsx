@@ -49,8 +49,8 @@ export default function ImportsPage() {
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
     if (file && file.type === "application/pdf") {
-      if (file.size > 50 * 1024 * 1024) {
-        toast.error("O arquivo excede o limite de 50MB.");
+      if (file.size > 200 * 1024 * 1024) {
+        toast.error("O arquivo excede o limite de 200MB.");
         return;
       }
       setSelectedFile(file);
@@ -84,7 +84,7 @@ export default function ImportsPage() {
       },
       {
         onSuccess: () => {
-          toast.success("Arquivo enviado com sucesso. Processamento iniciado.");
+          toast.success("Arquivo enviado com sucesso! O catálogo está sendo processado em segundo plano.");
           setIsDialogOpen(false);
           setSelectedFile(null);
           setSelectedSupplier("");
@@ -104,7 +104,13 @@ export default function ImportsPage() {
       case "IMPORTED":
         return <Badge className="bg-green-500">Concluído</Badge>;
       case "PROCESSING":
-        return <Badge className="bg-blue-500">Processando</Badge>;
+      case "UPLOADED":
+        return (
+          <Badge className="bg-blue-600 text-white flex items-center gap-1.5 animate-pulse">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Processando
+          </Badge>
+        );
       case "REVIEW_REQUIRED":
       case "REVIEW_NEEDED":
         return <Badge className="bg-orange-500">Revisão Necessária</Badge>;
