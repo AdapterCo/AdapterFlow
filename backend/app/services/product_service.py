@@ -12,11 +12,14 @@ class ProductService:
         
     async def create_from_import(self, session: AsyncSession, import_item: ImportItem, supplier_id: UUID):
         data = import_item.user_edits or import_item.normalized_data or {}
+        raw = import_item.raw_data or {}
+        price_val = data.get("normalized_price")
         
         product_data = {
             "name": data.get("normalized_name") or "Unnamed Product",
+            "sku": data.get("normalized_code"),
             "status": "ACTIVE",
-            "color": data.get("normalized_color")
+            "color": data.get("normalized_color"),
         }
         
         product = await self.repo.create(session, product_data)
@@ -25,16 +28,19 @@ class ProductService:
             product_id=product.id,
             supplier_id=supplier_id,
             supplier_code=data.get("normalized_code") or "UNKNOWN",
-            pcs_per_box=data.get("normalized_pcs_per_box")
+            supplier_name=data.get("normalized_name"),
+            pcs_per_box=data.get("normalized_pcs_per_box"),
+            current_cost=price_val,
+            raw_cost_value=raw.get("raw_price"),
         )
         session.add(supplier_data)
         await session.flush()
         
-        price_val = data.get("normalized_price")
         if price_val is not None:
             price = SupplierProductPrice(
                 product_supplier_data_id=supplier_data.id,
                 price=price_val,
+                raw_value=raw.get("raw_price"),
                 import_id=import_item.import_id
             )
             session.add(price)

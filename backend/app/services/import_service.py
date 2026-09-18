@@ -5,7 +5,7 @@ from app.storage.service import StorageService
 from app.importers.pdf.lehmox import LehmoxCatalogImporter
 from uuid import UUID
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 class ImportService:
     def __init__(self):
@@ -88,25 +88,39 @@ class ImportService:
             
         return await self.repo.get_job(session, job_id)
         
-    async def confirm_import(self, session: AsyncSession, job_id: UUID, approved_ids: List[UUID], rejected_ids: List[UUID], storage: StorageService):
+    async def confirm_import(self, session: AsyncSession, job_id: UUID, approved_ids: Optional[List[UUID]] = None, rejected_ids: Optional[List[UUID]] = None, storage: StorageService = None):
         job = await self.repo.get_job(session, job_id)
         if not job:
             return None
             
+        all_items = await self.repo.get_items_by_job(session, job_id)
+        
+        # If no explicit list is provided, approve all with status APPROVED or DETECTED
+        if approved_ids is None:
+            explicit_approved = [i.id for i in all_items if i.status == "APPROVED"]
+            if explicit_approved:
+                target_approved_ids = explicit_approved
+            else:
+                target_approved_ids = [i.id for i in all_items if i.status not in ["REJECTED", "IGNORED", "ERROR", "IMPORTED"]]
+        else:
+            target_approved_ids = approved_ids
+
+        target_rejected_ids = rejected_ids or []
         imported_count = 0
         
-        for item_id in approved_ids:
+        for item_id in target_approved_ids:
             item = await self.repo.get_item(session, item_id)
             if item and item.status != "IMPORTED":
                 await self.product_svc.create_from_import(session, item, job.supplier_id)
+                await self.repo.update_item(session, item_id, {"status": "IMPORTED"})
                 imported_count += 1
                 
-        for item_id in rejected_ids:
+        for item_id in target_rejected_ids:
             await self.repo.update_item(session, item_id, {"status": "REJECTED"})
             
         total = (job.total_imported or 0) + imported_count
         await self.repo.update_job(session, job_id, {
-            "status": "COMPLETED",
+            "status": "IMPORTED",
             "total_imported": total
         })
         
