@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useProducts } from "@/hooks/use-products";
+import { useDebounce } from "@/hooks/use-debounce";
 import { formatCurrency } from "@/lib/utils";
 import { Status } from "@/types";
 
@@ -24,14 +25,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, Loader2, Image as ImageIcon } from "lucide-react";
+import { Search, Loader2, Image as ImageIcon, AlertCircle, RefreshCw } from "lucide-react";
 
 export default function ProductsPage() {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Status | "">("");
   
-  const { data, isLoading } = useProducts(0, 50, search, statusFilter);
+  const debouncedSearch = useDebounce(search, 350);
+  const { data, isLoading, isError, error, refetch } = useProducts(0, 50, debouncedSearch, statusFilter);
 
   const getStatusBadge = (status: Status) => {
     switch (status) {
@@ -92,6 +94,21 @@ export default function ProductsPage() {
               <TableRow>
                 <TableCell colSpan={6} className="h-24 text-center">
                   <Loader2 className="mx-auto h-6 w-6 animate-spin text-zinc-500" />
+                </TableCell>
+              </TableRow>
+            ) : isError ? (
+              <TableRow>
+                <TableCell colSpan={6} className="h-32 text-center text-red-600">
+                  <div className="flex flex-col items-center justify-center gap-2">
+                    <AlertCircle className="h-6 w-6" />
+                    <p className="text-sm font-medium">
+                      {(error as Error)?.message || "Não foi possível carregar os produtos."}
+                    </p>
+                    <Button variant="outline" size="sm" onClick={() => refetch()}>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Tentar Novamente
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ) : data?.items.length === 0 ? (

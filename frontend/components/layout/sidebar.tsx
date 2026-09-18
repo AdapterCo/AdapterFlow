@@ -23,12 +23,12 @@ const mainNavItems = [
   { title: "Produtos", href: "/products", icon: Package },
   { title: "Importações", href: "/imports", icon: Upload },
   { title: "Fornecedores", href: "/suppliers", icon: Truck },
-];
-
-const futureNavItems = [
   { title: "Precificação", href: "/pricing", icon: DollarSign },
   { title: "Marketplaces", href: "/marketplaces", icon: Store },
   { title: "Publicações", href: "/publications", icon: Send },
+];
+
+const futureNavItems = [
   { title: "Estoque", href: "/inventory", icon: Warehouse },
   { title: "Pedidos", href: "/orders", icon: ShoppingCart },
   { title: "Vendas", href: "/sales", icon: TrendingUp },

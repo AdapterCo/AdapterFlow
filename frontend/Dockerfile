@@ -7,6 +7,10 @@ RUN npm ci
 
 COPY . .
 
+ENV NODE_ENV=production
+RUN npm run build
+
 EXPOSE 3099
 
-CMD ["npm", "run", "dev"]
+CMD ["npm", "run", "start"]
+

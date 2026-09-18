@@ -1,5 +1,6 @@
 function getApiBaseUrl(): string {
   if (typeof window !== "undefined") {
+    // In browser: if NEXT_PUBLIC_API_URL is set to an external absolute URL (not localhost), use it
     if (
       process.env.NEXT_PUBLIC_API_URL &&
       !process.env.NEXT_PUBLIC_API_URL.includes("localhost") &&
@@ -7,73 +8,101 @@ function getApiBaseUrl(): string {
     ) {
       return process.env.NEXT_PUBLIC_API_URL;
     }
-    if (
-      window.location.hostname !== "localhost" &&
-      window.location.hostname !== "127.0.0.1"
-    ) {
-      return `${window.location.protocol}//${window.location.hostname}:8000`;
-    }
+    // Otherwise use relative URL so Next.js rewrites proxy to the backend container
+    return "";
   }
-  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  // Server-side: use internal Docker service name
+  return process.env.INTERNAL_BACKEND_URL || "http://backend:8000";
+}
+
+const DEFAULT_TIMEOUT_MS = 15000;
+
+async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return res;
+  } catch (err: any) {
+    if (err.name === "AbortError") {
+      throw new Error("Tempo limite da requisição esgotado (timeout de 15s). Verifique sua conexão.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function handleResponse<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => null);
+    const message = errorBody?.detail || `Erro na requisição: ${res.status} ${res.statusText}`;
+    throw new Error(message);
+  }
+  return res.json();
 }
 
 export const apiClient = {
   async get<T>(path: string): Promise<T> {
     const baseUrl = getApiBaseUrl();
-    const res = await fetch(`${baseUrl}${path}`, {
+    const res = await fetchWithTimeout(`${baseUrl}${path}`, {
       headers: {
         "Content-Type": "application/json",
       },
     });
-    if (!res.ok) throw new Error(`API error: ${res.statusText}`);
-    return res.json();
+    return handleResponse<T>(res);
   },
 
   async post<T>(path: string, body?: any): Promise<T> {
     const baseUrl = getApiBaseUrl();
-    const res = await fetch(`${baseUrl}${path}`, {
+    const res = await fetchWithTimeout(`${baseUrl}${path}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) throw new Error(`API error: ${res.statusText}`);
-    return res.json();
+    return handleResponse<T>(res);
   },
 
   async patch<T>(path: string, body: any): Promise<T> {
     const baseUrl = getApiBaseUrl();
-    const res = await fetch(`${baseUrl}${path}`, {
+    const res = await fetchWithTimeout(`${baseUrl}${path}`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`API error: ${res.statusText}`);
-    return res.json();
+    return handleResponse<T>(res);
   },
 
   async put<T>(path: string, body: any): Promise<T> {
     const baseUrl = getApiBaseUrl();
-    const res = await fetch(`${baseUrl}${path}`, {
+    const res = await fetchWithTimeout(`${baseUrl}${path}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`API error: ${res.statusText}`);
-    return res.json();
+    return handleResponse<T>(res);
   },
 
   async delete(path: string): Promise<void> {
     const baseUrl = getApiBaseUrl();
-    const res = await fetch(`${baseUrl}${path}`, {
+    const res = await fetchWithTimeout(`${baseUrl}${path}`, {
       method: "DELETE",
     });
-    if (!res.ok) throw new Error(`API error: ${res.statusText}`);
+    if (!res.ok) {
+      const errorBody = await res.json().catch(() => null);
+      const message = errorBody?.detail || `Erro ao deletar: ${res.status} ${res.statusText}`;
+      throw new Error(message);
+    }
   },
 
   upload<T>(
@@ -85,6 +114,7 @@ export const apiClient = {
       const baseUrl = getApiBaseUrl();
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `${baseUrl}${path}`);
+      xhr.timeout = 120000; // 2 minutes for large file uploads
       
       if (onProgress && xhr.upload) {
         xhr.upload.onprogress = (event) => {
@@ -97,13 +127,23 @@ export const apiClient = {
 
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(JSON.parse(xhr.responseText));
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch (e) {
+            resolve(xhr.responseText as unknown as T);
+          }
         } else {
-          reject(new Error(`Upload error: ${xhr.statusText}`));
+          try {
+            const errData = JSON.parse(xhr.responseText);
+            reject(new Error(errData?.detail || `Upload error: ${xhr.statusText}`));
+          } catch {
+            reject(new Error(`Upload error: ${xhr.statusText}`));
+          }
         }
       };
 
-      xhr.onerror = () => reject(new Error("Network Error"));
+      xhr.ontimeout = () => reject(new Error("Tempo limite do upload esgotado."));
+      xhr.onerror = () => reject(new Error("Erro de conexão ao fazer upload. Verifique o servidor."));
       xhr.send(formData);
     });
   },

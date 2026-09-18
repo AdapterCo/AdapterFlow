@@ -37,7 +37,7 @@ services:
       db:
         condition: service_healthy
     command: >
-      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     networks:
       - adapterflow
 
@@ -47,16 +47,11 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: "http://localhost:${BACKEND_PORT:-8000}"
+      INTERNAL_BACKEND_URL: "http://backend:8000"
     ports:
       - "${FRONTEND_PORT:-3099}:3099"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
     depends_on:
       - backend
-    command: npm run dev
     networks:
       - adapterflow
 

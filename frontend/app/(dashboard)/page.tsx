@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Upload, Package, Truck, ArrowRight } from "lucide-react";
+import { Upload, Package, Truck, ArrowRight, DollarSign, Store, Send } from "lucide-react";
 
 export default function DashboardPage() {
   return (
@@ -38,10 +38,10 @@ export default function DashboardPage() {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-lg">
               <Package className="h-5 w-5 text-orange-500" />
-              Ver Produtos
+              Catálogo de Produtos
             </CardTitle>
             <CardDescription>
-              Visualize e gerencie seu catálogo unificado de produtos.
+              Visualize e gerencie seu catálogo unificado de produtos e fotos.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -57,11 +57,71 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-lg">
-              <Truck className="h-5 w-5 text-green-500" />
-              Gerenciar Fornecedores
+              <DollarSign className="h-5 w-5 text-emerald-500" />
+              Motor de Precificação
             </CardTitle>
             <CardDescription>
-              Gerencie as informações e códigos dos seus fornecedores.
+              Simule e configure regras de margem, impostos e taxas por canal.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild className="w-full" variant="outline">
+              <Link href="/pricing">
+                Configurar Regras
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Store className="h-5 w-5 text-yellow-500" />
+              Marketplaces (Mercado Livre)
+            </CardTitle>
+            <CardDescription>
+              Conecte suas contas OAuth 2.0 e gerencie integrações ativas.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild className="w-full" variant="outline">
+              <Link href="/marketplaces">
+                Gerenciar Contas
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Send className="h-5 w-5 text-purple-500" />
+              Central de Publicações
+            </CardTitle>
+            <CardDescription>
+              Acompanhe histórico, status de sincronização e anúncios no Meli.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild className="w-full" variant="outline">
+              <Link href="/publications">
+                Ver Publicações
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Truck className="h-5 w-5 text-zinc-500" />
+              Fornecedores
+            </CardTitle>
+            <CardDescription>
+              Gerencie fornecedores parceiros, códigos e dados de contato.
             </CardDescription>
           </CardHeader>
           <CardContent>
