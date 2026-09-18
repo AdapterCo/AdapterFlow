@@ -48,6 +48,10 @@ class ImportService:
                     storage.put(image_filename, item.image_data)
                     image_path = image_filename
                 
+                is_out_of_stock = getattr(item, "is_out_of_stock", False)
+                item_status = "IGNORED" if is_out_of_stock else "DETECTED"
+                review_notes = "Produto esgotado no catálogo do fornecedor." if is_out_of_stock else None
+
                 items_data.append({
                     "import_id": job.id,
                     "raw_data": {
@@ -64,11 +68,14 @@ class ImportService:
                         "normalized_price": float(item.normalized_price) if item.normalized_price else None,
                         "normalized_dimensions": item.normalized_dimensions,
                         "normalized_pcs_per_box": item.normalized_pcs_per_box,
-                        "normalized_color": item.normalized_color
+                        "normalized_color": item.normalized_color,
+                        "is_out_of_stock": is_out_of_stock,
+                        "warnings": item.warnings or [],
                     },
                     "confidence": item.confidence,
                     "image_path": image_path,
-                    "status": "DETECTED"
+                    "status": item_status,
+                    "review_notes": review_notes,
                 })
                 
             await self.repo.create_items_bulk(session, items_data)

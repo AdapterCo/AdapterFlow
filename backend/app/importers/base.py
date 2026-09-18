@@ -23,6 +23,7 @@ class ExtractedProduct:
     warnings: List[str]
     page_number: Optional[int] = None
     bbox: Optional[tuple] = None
+    is_out_of_stock: bool = False
 
 class BaseCatalogImporter(ABC):
     @abstractmethod

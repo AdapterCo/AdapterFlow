@@ -106,6 +106,8 @@ export interface ImportItem {
   image_path?: string | null;
   confidence_score?: number | null;
   warnings?: string[] | null;
+  is_out_of_stock?: boolean;
+  review_notes?: string | null;
   created_at: string;
   updated_at: string;
 }

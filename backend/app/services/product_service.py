@@ -15,6 +15,8 @@ class ProductService:
         raw = import_item.raw_data or {}
         price_val = data.get("normalized_price")
         sku_code = data.get("normalized_code")
+        is_out_of_stock = bool(data.get("is_out_of_stock", False))
+        product_status = "INACTIVE" if is_out_of_stock else "ACTIVE"
         
         product = None
         if sku_code:
@@ -24,15 +26,18 @@ class ProductService:
             product_data = {
                 "name": data.get("normalized_name") or "Unnamed Product",
                 "sku": sku_code,
-                "status": "ACTIVE",
+                "status": product_status,
                 "color": data.get("normalized_color"),
             }
             product = await self.repo.create(session, product_data)
         else:
-            await self.repo.update(session, product.id, {
+            update_fields = {
                 "name": data.get("normalized_name") or product.name,
                 "color": data.get("normalized_color") or product.color,
-            })
+            }
+            if is_out_of_stock:
+                update_fields["status"] = "INACTIVE"
+            await self.repo.update(session, product.id, update_fields)
         
         supplier_code = sku_code or "UNKNOWN"
         supplier_data = await self.repo.find_by_supplier_code(session, supplier_id, supplier_code)
@@ -45,6 +50,7 @@ class ProductService:
                 pcs_per_box=data.get("normalized_pcs_per_box"),
                 current_cost=price_val,
                 raw_cost_value=raw.get("raw_price"),
+                is_active=not is_out_of_stock,
             )
             session.add(supplier_data)
             await session.flush()
@@ -52,6 +58,8 @@ class ProductService:
             supplier_data.current_cost = price_val
             supplier_data.supplier_name = data.get("normalized_name") or supplier_data.supplier_name
             supplier_data.pcs_per_box = data.get("normalized_pcs_per_box") or supplier_data.pcs_per_box
+            if is_out_of_stock:
+                supplier_data.is_active = False
             await session.flush()
         
         if price_val is not None:

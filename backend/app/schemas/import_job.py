@@ -93,6 +93,11 @@ class ImportItemResponse(BaseModel):
     def warnings(self) -> List[str]:
         return (self.normalized_data or {}).get("warnings", [])
 
+    @computed_field
+    @property
+    def is_out_of_stock(self) -> bool:
+        return bool((self.normalized_data or {}).get("is_out_of_stock", False))
+
 class ImportItemListResponse(BaseModel):
     items: List[ImportItemResponse]
     total: int

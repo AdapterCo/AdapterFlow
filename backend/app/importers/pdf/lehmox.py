@@ -21,6 +21,7 @@ Strategy:
 6. Return ExtractedProduct list with confidence scores, warnings, and raw data preserved
 """
 import re
+import hashlib
 import logging
 from typing import Optional
 from decimal import Decimal, InvalidOperation
@@ -30,6 +31,18 @@ import fitz  # PyMuPDF
 from app.importers.base import BaseCatalogImporter, ExtractedProduct
 
 logger = logging.getLogger(__name__)
+
+# Out-of-stock patterns (text and image stamps)
+OUT_OF_STOCK_TEXT_REGEX = re.compile(
+    r'\b(esgotad[oa]s?|sem\s+estoque|indispon[ií]vel|esgotou)\b',
+    re.IGNORECASE
+)
+
+OUT_OF_STOCK_STAMP_HASHES = {
+    "b7fd32bf8e33ebb50fe76b64bd23b35f",  # 464x184 red stamp
+    "f0342eb538193a3d43c829572b9e7a45",  # 309x123 red stamp
+    "88812db8b885bfd4eef7f2d2b47cdf24",  # 412x164 red stamp
+}
 
 # Pattern for product codes in banner: LE-520, LE-521-2, LES-Q3B, LES-MOXC, LEY-2322, LEY-12, etc.
 PRODUCT_CODE_REGEX = re.compile(
@@ -379,6 +392,7 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
                 "raw_pcs_per_box": None,
                 "raw_dimensions": None,
                 "raw_color": None,
+                "is_out_of_stock": False,
             }
 
             # Assign text blocks within this cell
@@ -386,9 +400,12 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
                 if cell_x0 <= block["cx"] <= cell_x1 and cell_y0 <= block["cy"] <= cell_y1:
                     card["text_blocks"].append(block)
 
-            # Assign images within this cell
+            # Assign images within this cell, detecting and filtering out out-of-stock stamps
             for img in images:
                 if cell_x0 <= img["cx"] <= cell_x1 and cell_y0 <= img["cy"] <= cell_y1:
+                    if self._is_out_of_stock_stamp(img):
+                        card["is_out_of_stock"] = True
+                        continue
                     card["images"].append(img)
 
             # Parse fields within this card
@@ -396,6 +413,21 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
             cards.append(card)
 
         return cards
+
+    def _is_out_of_stock_stamp(self, img: dict) -> bool:
+        """Check if an image matches known or heuristic ESGOTADO stamp parameters."""
+        data = img.get("data")
+        if not data:
+            return False
+        h = hashlib.md5(data).hexdigest()
+        if h in OUT_OF_STOCK_STAMP_HASHES:
+            return True
+        w, height = img.get("width", 0), img.get("height", 0)
+        if height > 0:
+            ratio = w / height
+            if 2.3 <= ratio <= 2.7 and 80 <= height <= 280:
+                return True
+        return False
 
     def _parse_card_fields(self, card: dict, anchor: dict) -> None:
         """Parse the collected blocks in a card into structured fields."""
@@ -411,6 +443,11 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
             lines = [l.strip() for l in text.split('\n') if l.strip()]
 
             for line in lines:
+                # 0. Check Out of Stock text
+                if OUT_OF_STOCK_TEXT_REGEX.search(line):
+                    card["is_out_of_stock"] = True
+                    continue
+
                 # 1. Check PCS/CX pill
                 pcs_match = PCS_REGEX.search(line)
                 if pcs_match:
@@ -507,6 +544,11 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
         else:
             confidence -= 0.1
 
+        # Check out of stock status
+        is_out_of_stock = card.get("is_out_of_stock", False)
+        if is_out_of_stock:
+            warnings.append("Item marcado como ESGOTADO no catálogo do fornecedor")
+
         confidence = max(0.0, min(1.0, confidence))
 
         if confidence < 0.6:
@@ -531,4 +573,5 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
             warnings=warnings,
             page_number=page_num,
             bbox=card.get("cell_bbox"),
+            is_out_of_stock=is_out_of_stock,
         )

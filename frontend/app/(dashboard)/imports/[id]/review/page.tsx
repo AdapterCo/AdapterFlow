@@ -48,16 +48,18 @@ export default function ImportReviewPage({ params }: { params: Promise<{ id: str
   const isJobComplete = job.status === "COMPLETED" || job.status === "IMPORTED";
   const approvedCount = itemsData.items.filter(i => i.status === "APPROVED").length;
   const detectedCount = itemsData.items.filter(i => i.status === "DETECTED" || i.status === "PENDING").length;
+  const outOfStockCount = itemsData.items.filter(i => i.is_out_of_stock).length;
   const eligibleCount = itemsData.items.filter(i => i.status !== "IGNORED" && i.status !== "REJECTED").length;
   const hasEligibleItems = eligibleCount > 0;
 
   const handleApproveAll = () => {
     itemsData.items.forEach(item => {
-      if (item.status === "DETECTED" || item.status === "PENDING") {
+      // Don't auto-approve out of stock items in approve-all
+      if ((item.status === "DETECTED" || item.status === "PENDING") && !item.is_out_of_stock) {
         updateItem.mutate({ itemId: item.id, data: { status: "APPROVED" } });
       }
     });
-    toast.success("Todos os itens foram marcados como Aprovados!");
+    toast.success("Itens válidos marcados como Aprovados!");
   };
 
   return (
@@ -86,7 +88,7 @@ export default function ImportReviewPage({ params }: { params: Promise<{ id: str
               disabled={updateItem.isPending}
             >
               <Check className="mr-1.5 h-4 w-4 text-green-600" />
-              Aprovar Todos ({itemsData.items.length})
+              Aprovar Disponíveis
             </Button>
           )}
 
@@ -99,10 +101,16 @@ export default function ImportReviewPage({ params }: { params: Promise<{ id: str
               <span className="block text-xs text-muted-foreground uppercase font-semibold text-green-600">Aprovados</span>
               <span className="font-bold text-lg text-green-600">{approvedCount}</span>
             </div>
-            <div className="text-center px-4">
+            <div className="text-center px-4 border-r">
               <span className="block text-xs text-muted-foreground uppercase font-semibold text-amber-600">Pendentes</span>
               <span className="font-bold text-lg text-amber-600">{detectedCount}</span>
             </div>
+            {outOfStockCount > 0 && (
+              <div className="text-center px-4">
+                <span className="block text-xs text-muted-foreground uppercase font-semibold text-rose-600">Esgotados</span>
+                <span className="font-bold text-lg text-rose-600">{outOfStockCount}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -169,22 +177,32 @@ function ReviewItemCard({
   const isIgnored = item.status === "IGNORED";
   const isPendingReview = item.status === "PENDING" || item.status === "DETECTED";
   const hasWarnings = item.warnings && item.warnings.length > 0;
+  const isOutOfStock = Boolean(item.is_out_of_stock);
 
   return (
-    <Card className={`p-4 transition-colors ${isIgnored ? "opacity-60 bg-zinc-50" : ""} ${isApproved ? "border-green-200 bg-green-50/10" : ""}`}>
+    <Card className={`p-4 transition-colors ${
+      isOutOfStock ? "border-rose-300 bg-rose-50/20" : isIgnored ? "opacity-60 bg-zinc-50" : isApproved ? "border-green-200 bg-green-50/10" : ""
+    }`}>
       <div className="flex flex-col md:flex-row gap-6">
-        <div className="w-full md:w-32 h-32 shrink-0 bg-white border rounded-md overflow-hidden flex items-center justify-center">
+        <div className="w-full md:w-32 h-32 shrink-0 bg-white border rounded-md overflow-hidden flex items-center justify-center relative">
           {item.image_path ? (
             <img src={item.image_path} alt="Extraído" className="w-full h-full object-contain p-2" />
           ) : (
             <ImageIcon className="h-8 w-8 text-zinc-300" />
+          )}
+          {isOutOfStock && (
+            <div className="absolute inset-0 bg-rose-900/10 flex items-center justify-center pointer-events-none">
+              <span className="bg-rose-600/90 text-white text-[10px] font-black px-2 py-0.5 rounded shadow rotate-[-12deg] tracking-wider uppercase">
+                ESGOTADO
+              </span>
+            </div>
           )}
         </div>
 
         <div className="flex-1 space-y-4">
           <div className="flex items-start justify-between">
             <div>
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
                 {isEditing ? (
                   <Input 
                     value={editedCode} 
@@ -195,6 +213,11 @@ function ReviewItemCard({
                   <h3 className="font-mono text-lg font-bold">
                     {item.normalized_code || item.raw_code || "Sem código"}
                   </h3>
+                )}
+                {isOutOfStock && (
+                  <Badge variant="destructive" className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold">
+                    ESGOTADO NO FORNECEDOR
+                  </Badge>
                 )}
                 {item.confidence_score && (
                   <Badge variant={item.confidence_score > 0.8 ? "default" : "secondary"} className="text-[10px]">
@@ -228,12 +251,19 @@ function ReviewItemCard({
               {!isPendingReview && (
                 <div className="flex items-center gap-3">
                   <Badge variant={isApproved ? "default" : "secondary"} className={isApproved ? "bg-green-500 text-white" : ""}>
-                    {isApproved ? "Aprovado" : item.status === "IGNORED" ? "Ignorado" : item.status === "IMPORTED" ? "Cadastrado" : item.status}
+                    {isApproved ? "Aprovado" : item.status === "IGNORED" ? (isOutOfStock ? "Ignorado (Esgotado)" : "Ignorado") : item.status === "IMPORTED" ? "Cadastrado" : item.status}
                   </Badge>
                   {!readOnly && item.status !== "IMPORTED" && (
-                    <Button size="sm" variant="ghost" onClick={() => setStatus("DETECTED")}>
-                      Desfazer
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      {isIgnored && (
+                        <Button size="sm" variant="outline" className="text-green-700 hover:bg-green-50" onClick={() => setStatus("APPROVED")}>
+                          Aprovar (Inativo)
+                        </Button>
+                      )}
+                      <Button size="sm" variant="ghost" onClick={() => setStatus("DETECTED")}>
+                        Desfazer
+                      </Button>
+                    </div>
                   )}
                 </div>
               )}
