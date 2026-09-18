@@ -35,7 +35,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, Pencil } from "lucide-react";
+import { Loader2, Plus, Pencil, AlertCircle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 const formSchema = z.object({
@@ -44,7 +44,7 @@ const formSchema = z.object({
 });
 
 export default function SuppliersPage() {
-  const { data, isLoading } = useSuppliers();
+  const { data, isLoading, isError, error, refetch } = useSuppliers();
   const createSupplier = useCreateSupplier();
   const updateSupplier = useUpdateSupplier();
 
@@ -77,9 +77,14 @@ export default function SuppliersPage() {
   };
 
   const onSubmit = (values: z.infer<typeof formSchema>) => {
+    const payload: SupplierCreate = {
+      name: values.name.trim(),
+      code: values.code?.trim() || undefined,
+    };
+
     if (editingSupplier) {
       updateSupplier.mutate(
-        { id: editingSupplier.id, data: values },
+        { id: editingSupplier.id, data: payload },
         {
           onSuccess: () => {
             toast.success("Fornecedor atualizado com sucesso!");
@@ -89,7 +94,7 @@ export default function SuppliersPage() {
         }
       );
     } else {
-      createSupplier.mutate(values as SupplierCreate, {
+      createSupplier.mutate(payload, {
         onSuccess: () => {
           toast.success("Fornecedor criado com sucesso!");
           setIsDialogOpen(false);
@@ -125,6 +130,21 @@ export default function SuppliersPage() {
               <TableRow>
                 <TableCell colSpan={5} className="h-24 text-center">
                   <Loader2 className="mx-auto h-6 w-6 animate-spin text-zinc-500" />
+                </TableCell>
+              </TableRow>
+            ) : isError ? (
+              <TableRow>
+                <TableCell colSpan={5} className="h-32 text-center text-red-600">
+                  <div className="flex flex-col items-center justify-center gap-2">
+                    <AlertCircle className="h-6 w-6" />
+                    <p className="text-sm font-medium">
+                      {(error as Error)?.message || "Não foi possível carregar os fornecedores."}
+                    </p>
+                    <Button variant="outline" size="sm" onClick={() => refetch()}>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Tentar Novamente
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ) : data?.items.length === 0 ? (

@@ -9,7 +9,8 @@ class ProductRepository:
     async def create(self, session: AsyncSession, data: dict) -> Product:
         product = Product(**data)
         session.add(product)
-        await session.flush()
+        await session.commit()
+        await session.refresh(product)
         return product
 
     async def get_by_id(self, session: AsyncSession, id: UUID) -> Product | None:
@@ -22,7 +23,7 @@ class ProductRepository:
             query = query.where(Product.name.ilike(f"%{search}%") | Product.sku.ilike(f"%{search}%"))
         if status:
             query = query.where(Product.status == status)
-        query = query.offset(skip).limit(limit)
+        query = query.order_by(Product.created_at.desc()).offset(skip).limit(limit)
         result = await session.execute(query)
         return list(result.scalars().all())
 
@@ -38,7 +39,7 @@ class ProductRepository:
     async def update(self, session: AsyncSession, id: UUID, data: dict) -> Product | None:
         if data:
             await session.execute(update(Product).where(Product.id == id).values(**data))
-            await session.flush()
+            await session.commit()
         return await self.get_by_id(session, id)
 
     async def get_with_details(self, session: AsyncSession, id: UUID) -> Product | None:

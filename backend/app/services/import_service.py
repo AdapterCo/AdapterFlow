@@ -123,5 +123,5 @@ class ImportService:
             "status": "IMPORTED",
             "total_imported": total
         })
-        
+        await session.commit()
         return await self.repo.get_job(session, job_id)

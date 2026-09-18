@@ -22,4 +22,10 @@ async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
-        yield session
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+

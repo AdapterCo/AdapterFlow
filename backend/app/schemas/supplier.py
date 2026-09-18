@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel, ConfigDict, computed_field, field_validator
 from uuid import UUID
 from datetime import datetime
 from typing import Optional
@@ -7,6 +7,13 @@ class SupplierBase(BaseModel):
     name: str
     code: Optional[str] = None
     contact_info: Optional[dict] = None
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v):
+        if v == "" or (isinstance(v, str) and not v.strip()):
+            return None
+        return v
 
 class SupplierCreate(SupplierBase):
     pass

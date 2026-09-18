@@ -8,7 +8,8 @@ class SupplierRepository:
     async def create(self, session: AsyncSession, data: SupplierCreate) -> Supplier:
         supplier = Supplier(**data.model_dump())
         session.add(supplier)
-        await session.flush()
+        await session.commit()
+        await session.refresh(supplier)
         return supplier
 
     async def get_by_id(self, session: AsyncSession, id: UUID) -> Supplier | None:
@@ -20,7 +21,7 @@ class SupplierRepository:
         return result.scalars().first()
 
     async def list_all(self, session: AsyncSession, skip: int = 0, limit: int = 100) -> list[Supplier]:
-        result = await session.execute(select(Supplier).offset(skip).limit(limit))
+        result = await session.execute(select(Supplier).order_by(Supplier.created_at.desc()).offset(skip).limit(limit))
         return list(result.scalars().all())
 
     async def count(self, session: AsyncSession) -> int:
@@ -33,10 +34,10 @@ class SupplierRepository:
             return await self.get_by_id(session, id)
         
         await session.execute(update(Supplier).where(Supplier.id == id).values(**update_data))
-        await session.flush()
+        await session.commit()
         return await self.get_by_id(session, id)
 
     async def deactivate(self, session: AsyncSession, id: UUID) -> Supplier | None:
         await session.execute(update(Supplier).where(Supplier.id == id).values(is_active=False))
-        await session.flush()
+        await session.commit()
         return await self.get_by_id(session, id)
