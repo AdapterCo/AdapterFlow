@@ -3,6 +3,7 @@ from sqlalchemy import String, Integer, Text, Numeric, text, func, ForeignKey, D
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
 from app.core.database import Base
+from app.models.supplier import Supplier
 from datetime import datetime
 from typing import List
 
@@ -26,6 +27,7 @@ class ImportJob(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    supplier: Mapped["Supplier"] = relationship("Supplier", lazy="selectin")
     items: Mapped[List["ImportItem"]] = relationship("ImportItem", back_populates="job", cascade="all, delete-orphan")
 
 class ImportItem(Base):

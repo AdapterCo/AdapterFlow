@@ -14,27 +14,45 @@ class ProductService:
         data = import_item.user_edits or import_item.normalized_data or {}
         raw = import_item.raw_data or {}
         price_val = data.get("normalized_price")
+        sku_code = data.get("normalized_code")
         
-        product_data = {
-            "name": data.get("normalized_name") or "Unnamed Product",
-            "sku": data.get("normalized_code"),
-            "status": "ACTIVE",
-            "color": data.get("normalized_color"),
-        }
+        product = None
+        if sku_code:
+            product = await self.repo.get_by_sku(session, sku_code)
+            
+        if product is None:
+            product_data = {
+                "name": data.get("normalized_name") or "Unnamed Product",
+                "sku": sku_code,
+                "status": "ACTIVE",
+                "color": data.get("normalized_color"),
+            }
+            product = await self.repo.create(session, product_data)
+        else:
+            await self.repo.update(session, product.id, {
+                "name": data.get("normalized_name") or product.name,
+                "color": data.get("normalized_color") or product.color,
+            })
         
-        product = await self.repo.create(session, product_data)
-        
-        supplier_data = ProductSupplierData(
-            product_id=product.id,
-            supplier_id=supplier_id,
-            supplier_code=data.get("normalized_code") or "UNKNOWN",
-            supplier_name=data.get("normalized_name"),
-            pcs_per_box=data.get("normalized_pcs_per_box"),
-            current_cost=price_val,
-            raw_cost_value=raw.get("raw_price"),
-        )
-        session.add(supplier_data)
-        await session.flush()
+        supplier_code = sku_code or "UNKNOWN"
+        supplier_data = await self.repo.find_by_supplier_code(session, supplier_id, supplier_code)
+        if supplier_data is None:
+            supplier_data = ProductSupplierData(
+                product_id=product.id,
+                supplier_id=supplier_id,
+                supplier_code=supplier_code,
+                supplier_name=data.get("normalized_name"),
+                pcs_per_box=data.get("normalized_pcs_per_box"),
+                current_cost=price_val,
+                raw_cost_value=raw.get("raw_price"),
+            )
+            session.add(supplier_data)
+            await session.flush()
+        else:
+            supplier_data.current_cost = price_val
+            supplier_data.supplier_name = data.get("normalized_name") or supplier_data.supplier_name
+            supplier_data.pcs_per_box = data.get("normalized_pcs_per_box") or supplier_data.pcs_per_box
+            await session.flush()
         
         if price_val is not None:
             price = SupplierProductPrice(

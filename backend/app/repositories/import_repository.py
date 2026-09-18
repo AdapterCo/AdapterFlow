@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
+from sqlalchemy.orm import selectinload
 from app.models.import_job import ImportJob, ImportItem
 from uuid import UUID
 from typing import List
@@ -13,11 +14,19 @@ class ImportRepository:
         return job
 
     async def get_job(self, session: AsyncSession, id: UUID) -> ImportJob | None:
-        result = await session.execute(select(ImportJob).where(ImportJob.id == id))
+        result = await session.execute(
+            select(ImportJob).options(selectinload(ImportJob.supplier)).where(ImportJob.id == id)
+        )
         return result.scalars().first()
 
     async def list_jobs(self, session: AsyncSession, skip: int = 0, limit: int = 100) -> List[ImportJob]:
-        result = await session.execute(select(ImportJob).order_by(ImportJob.created_at.desc()).offset(skip).limit(limit))
+        result = await session.execute(
+            select(ImportJob)
+            .options(selectinload(ImportJob.supplier))
+            .order_by(ImportJob.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
         return list(result.scalars().all())
 
     async def count_jobs(self, session: AsyncSession) -> int:

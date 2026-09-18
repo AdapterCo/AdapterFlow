@@ -101,9 +101,11 @@ export default function ImportsPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "COMPLETED":
+      case "IMPORTED":
         return <Badge className="bg-green-500">Concluído</Badge>;
       case "PROCESSING":
         return <Badge className="bg-blue-500">Processando</Badge>;
+      case "REVIEW_REQUIRED":
       case "REVIEW_NEEDED":
         return <Badge className="bg-orange-500">Revisão Necessária</Badge>;
       case "FAILED":
@@ -131,19 +133,20 @@ export default function ImportsPage() {
               <TableHead>Fornecedor</TableHead>
               <TableHead>Data</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="text-right">Itens (Det / Imp / Err)</TableHead>
+              <TableHead className="text-center">Itens (Det / Imp / Err)</TableHead>
+              <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center">
+                <TableCell colSpan={6} className="h-24 text-center">
                   <Loader2 className="mx-auto h-6 w-6 animate-spin text-zinc-500" />
                 </TableCell>
               </TableRow>
             ) : data?.items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                   Nenhuma importação realizada.
                 </TableCell>
               </TableRow>
@@ -151,12 +154,8 @@ export default function ImportsPage() {
               data?.items.map((job) => (
                 <TableRow 
                   key={job.id} 
-                  className={job.status === "REVIEW_NEEDED" ? "cursor-pointer hover:bg-zinc-50" : ""}
-                  onClick={() => {
-                    if (job.status === "REVIEW_NEEDED") {
-                      router.push(`/imports/${job.id}/review`);
-                    }
-                  }}
+                  className="cursor-pointer hover:bg-zinc-50"
+                  onClick={() => router.push(`/imports/${job.id}/review`)}
                 >
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
@@ -164,17 +163,35 @@ export default function ImportsPage() {
                       {job.original_filename}
                     </div>
                   </TableCell>
-                  <TableCell>{job.supplier?.name || "Desconhecido"}</TableCell>
+                  <TableCell>
+                    <span className="font-medium text-zinc-800">
+                      {job.supplier?.name || "Fornecedor não identificado"}
+                    </span>
+                  </TableCell>
                   <TableCell>{formatDate(job.created_at)}</TableCell>
                   <TableCell>{getStatusBadge(job.status)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-2 text-sm">
+                  <TableCell className="text-center">
+                    <div className="flex items-center justify-center gap-2 text-sm">
                       <span className="text-zinc-600 font-medium" title="Detectados">{job.items_detected}</span>
                       <span className="text-zinc-300">/</span>
                       <span className="text-green-600 font-medium" title="Importados">{job.items_imported}</span>
                       <span className="text-zinc-300">/</span>
                       <span className="text-red-600 font-medium" title="Erros">{job.items_failed}</span>
                     </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button 
+                      size="sm" 
+                      variant={job.status === "IMPORTED" || job.status === "COMPLETED" ? "outline" : "default"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        router.push(`/imports/${job.id}/review`);
+                      }}
+                    >
+                      {job.status === "IMPORTED" || job.status === "COMPLETED" 
+                        ? "Ver Produtos" 
+                        : `Revisar (${job.items_detected} itens)`}
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))

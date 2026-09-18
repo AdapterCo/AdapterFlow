@@ -3,6 +3,7 @@ from uuid import UUID
 from datetime import datetime
 from typing import Optional, List, Any
 from decimal import Decimal
+from app.schemas.supplier import SupplierResponse
 
 class ImportItemResponse(BaseModel):
     id: UUID
@@ -99,6 +100,7 @@ class ImportItemListResponse(BaseModel):
 class ImportJobResponse(BaseModel):
     id: UUID
     supplier_id: UUID
+    supplier: Optional[SupplierResponse] = None
     file_name: str
     file_size: Optional[int] = None
     importer_type: str

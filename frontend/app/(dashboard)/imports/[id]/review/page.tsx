@@ -45,8 +45,20 @@ export default function ImportReviewPage({ params }: { params: Promise<{ id: str
 
   if (!job || !itemsData) return null;
 
-  const hasApprovedItems = itemsData.items.some(i => i.status === "APPROVED");
-  const isJobComplete = job.status === "COMPLETED";
+  const isJobComplete = job.status === "COMPLETED" || job.status === "IMPORTED";
+  const approvedCount = itemsData.items.filter(i => i.status === "APPROVED").length;
+  const detectedCount = itemsData.items.filter(i => i.status === "DETECTED" || i.status === "PENDING").length;
+  const eligibleCount = itemsData.items.filter(i => i.status !== "IGNORED" && i.status !== "REJECTED").length;
+  const hasEligibleItems = eligibleCount > 0;
+
+  const handleApproveAll = () => {
+    itemsData.items.forEach(item => {
+      if (item.status === "DETECTED" || item.status === "PENDING") {
+        updateItem.mutate({ itemId: item.id, data: { status: "APPROVED" } });
+      }
+    });
+    toast.success("Todos os itens foram marcados como Aprovados!");
+  };
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-24">
@@ -60,23 +72,37 @@ export default function ImportReviewPage({ params }: { params: Promise<{ id: str
             <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
               <span>{job.original_filename}</span>
               <span>•</span>
-              <span>{job.supplier?.name}</span>
+              <span className="font-medium text-zinc-700">{job.supplier?.name || "Fornecedor"}</span>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-4 bg-white p-3 rounded-md border shadow-sm">
-          <div className="text-center px-4 border-r">
-            <span className="block text-xs text-muted-foreground uppercase font-semibold">Total</span>
-            <span className="font-bold text-lg">{itemsData.total}</span>
-          </div>
-          <div className="text-center px-4 border-r">
-            <span className="block text-xs text-muted-foreground uppercase font-semibold text-green-600">Aprovados</span>
-            <span className="font-bold text-lg text-green-600">{itemsData.items.filter(i => i.status === "APPROVED").length}</span>
-          </div>
-          <div className="text-center px-4">
-            <span className="block text-xs text-muted-foreground uppercase font-semibold text-red-600">Erros</span>
-            <span className="font-bold text-lg text-red-600">{itemsData.items.filter(i => i.status === "ERROR").length}</span>
+        <div className="flex items-center gap-3">
+          {!isJobComplete && detectedCount > 0 && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleApproveAll}
+              disabled={updateItem.isPending}
+            >
+              <Check className="mr-1.5 h-4 w-4 text-green-600" />
+              Aprovar Todos ({itemsData.items.length})
+            </Button>
+          )}
+
+          <div className="flex items-center gap-4 bg-white p-3 rounded-md border shadow-sm">
+            <div className="text-center px-4 border-r">
+              <span className="block text-xs text-muted-foreground uppercase font-semibold">Total</span>
+              <span className="font-bold text-lg">{itemsData.total}</span>
+            </div>
+            <div className="text-center px-4 border-r">
+              <span className="block text-xs text-muted-foreground uppercase font-semibold text-green-600">Aprovados</span>
+              <span className="font-bold text-lg text-green-600">{approvedCount}</span>
+            </div>
+            <div className="text-center px-4">
+              <span className="block text-xs text-muted-foreground uppercase font-semibold text-amber-600">Pendentes</span>
+              <span className="font-bold text-lg text-amber-600">{detectedCount}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -96,15 +122,16 @@ export default function ImportReviewPage({ params }: { params: Promise<{ id: str
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] lg:pl-64 z-10">
           <div className="max-w-6xl mx-auto flex items-center justify-between">
             <div className="text-sm text-muted-foreground">
-              Revise os itens extraídos. Os itens aprovados serão convertidos em produtos no catálogo.
+              Revise os itens extraídos do PDF. Clique em Confirmar para cadastrar no catálogo de produtos.
             </div>
             <Button 
               size="lg" 
               onClick={handleConfirmJob} 
-              disabled={!hasApprovedItems || confirmImport.isPending}
+              disabled={!hasEligibleItems || confirmImport.isPending}
+              className="bg-zinc-900 hover:bg-zinc-800 text-white"
             >
               {confirmImport.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
-              Confirmar Importação
+              Confirmar e Cadastrar {eligibleCount} Produtos
             </Button>
           </div>
         </div>
@@ -140,6 +167,7 @@ function ReviewItemCard({
 
   const isApproved = item.status === "APPROVED";
   const isIgnored = item.status === "IGNORED";
+  const isPendingReview = item.status === "PENDING" || item.status === "DETECTED";
   const hasWarnings = item.warnings && item.warnings.length > 0;
 
   return (
@@ -178,7 +206,7 @@ function ReviewItemCard({
             </div>
             
             <div className="flex gap-2">
-              {item.status === "PENDING" && !readOnly && (
+              {isPendingReview && !readOnly && (
                 <>
                   {isEditing ? (
                     <Button size="sm" variant="outline" onClick={handleSaveEdit}>
@@ -197,13 +225,13 @@ function ReviewItemCard({
                   </Button>
                 </>
               )}
-              {item.status !== "PENDING" && (
+              {!isPendingReview && (
                 <div className="flex items-center gap-3">
-                  <Badge variant={isApproved ? "default" : "secondary"} className={isApproved ? "bg-green-500" : ""}>
-                    {isApproved ? "Aprovado" : item.status === "IGNORED" ? "Ignorado" : item.status}
+                  <Badge variant={isApproved ? "default" : "secondary"} className={isApproved ? "bg-green-500 text-white" : ""}>
+                    {isApproved ? "Aprovado" : item.status === "IGNORED" ? "Ignorado" : item.status === "IMPORTED" ? "Cadastrado" : item.status}
                   </Badge>
-                  {!readOnly && (
-                    <Button size="sm" variant="ghost" onClick={() => setStatus("PENDING")}>
+                  {!readOnly && item.status !== "IMPORTED" && (
+                    <Button size="sm" variant="ghost" onClick={() => setStatus("DETECTED")}>
                       Desfazer
                     </Button>
                   )}

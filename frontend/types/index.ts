@@ -7,8 +7,8 @@ export interface PaginatedResponse<T> {
 }
 
 export type Status = "ACTIVE" | "DRAFT" | "INACTIVE";
-export type ImportStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "REVIEW_NEEDED";
-export type ItemStatus = "PENDING" | "APPROVED" | "IGNORED" | "ERROR";
+export type ImportStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "REVIEW_NEEDED" | "REVIEW_REQUIRED" | "IMPORTED" | "UPLOADED";
+export type ItemStatus = "PENDING" | "APPROVED" | "IGNORED" | "ERROR" | "DETECTED" | "IMPORTED" | "REJECTED";
 
 export interface Supplier {
   id: string;

@@ -17,6 +17,10 @@ class ProductRepository:
         result = await session.execute(select(Product).where(Product.id == id))
         return result.scalars().first()
 
+    async def get_by_sku(self, session: AsyncSession, sku: str) -> Product | None:
+        result = await session.execute(select(Product).where(Product.sku == sku))
+        return result.scalars().first()
+
     async def list_all(self, session: AsyncSession, skip: int = 0, limit: int = 100, search: Optional[str] = None, status: Optional[str] = None) -> List[Product]:
         query = select(Product)
         if search:
