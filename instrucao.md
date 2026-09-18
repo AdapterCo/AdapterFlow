@@ -43,6 +43,9 @@
 - Timestamps com timezone (TIMESTAMPTZ, UTC).
 - Arredondamento monetário explícito e testado.
 
+### 7. Versionamento Git e Deploy
+- Sempre que realizar um commit, executar obrigatoriamente `git push` imediatamente para o repositório remoto, garantindo sincronização instantânea com o ambiente de deploy/VPS.
+
 ---
 
 ## Decisões Arquiteturais
