@@ -195,18 +195,40 @@ export default function ImportsPage() {
           <div className="space-y-6 pt-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Fornecedor</label>
-              <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione um fornecedor" />
-                </SelectTrigger>
-                <SelectContent>
-                  {suppliersData?.items.filter(s => s.status === "ACTIVE").map((supplier) => (
-                    <SelectItem key={supplier.id} value={supplier.id}>
-                      {supplier.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {(!suppliersData?.items || suppliersData.items.length === 0) ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-800 dark:text-amber-300 space-y-1">
+                  <p>Nenhum fornecedor cadastrado na plataforma.</p>
+                  <p>
+                    É obrigatório associar a importação a um fornecedor.
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="p-0 h-auto ml-1 text-xs font-semibold underline text-amber-900 dark:text-amber-200"
+                      onClick={() => {
+                        setIsDialogOpen(false);
+                        router.push("/suppliers");
+                      }}
+                    >
+                      Cadastrar fornecedor agora
+                    </Button>
+                  </p>
+                </div>
+              ) : (
+                <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione um fornecedor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {suppliersData?.items
+                      .filter((s) => s.is_active ?? (s.status === "ACTIVE"))
+                      .map((supplier) => (
+                        <SelectItem key={supplier.id} value={supplier.id}>
+                          {supplier.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             <div className="space-y-2">

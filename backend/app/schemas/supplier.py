@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 from uuid import UUID
 from datetime import datetime
 from typing import Optional
@@ -24,6 +24,11 @@ class SupplierResponse(SupplierBase):
     updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def status(self) -> str:
+        return "ACTIVE" if self.is_active else "INACTIVE"
 
 class SupplierList(BaseModel):
     items: list[SupplierResponse]

@@ -15,6 +15,7 @@ export interface Supplier {
   name: string;
   code?: string | null;
   status: Status;
+  is_active?: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -139,8 +139,8 @@ export default function SuppliersPage() {
                   <TableCell className="font-medium">{supplier.name}</TableCell>
                   <TableCell>{supplier.code || "-"}</TableCell>
                   <TableCell>
-                    <Badge variant={supplier.status === "ACTIVE" ? "default" : "secondary"}>
-                      {supplier.status === "ACTIVE" ? "Ativo" : "Inativo"}
+                    <Badge variant={(supplier.is_active ?? (supplier.status === "ACTIVE")) ? "default" : "secondary"}>
+                      {(supplier.is_active ?? (supplier.status === "ACTIVE")) ? "Ativo" : "Inativo"}
                     </Badge>
                   </TableCell>
                   <TableCell>{formatDate(supplier.created_at)}</TableCell>

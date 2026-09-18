@@ -1,8 +1,26 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+function getApiBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    if (
+      process.env.NEXT_PUBLIC_API_URL &&
+      !process.env.NEXT_PUBLIC_API_URL.includes("localhost") &&
+      !process.env.NEXT_PUBLIC_API_URL.includes("127.0.0.1")
+    ) {
+      return process.env.NEXT_PUBLIC_API_URL;
+    }
+    if (
+      window.location.hostname !== "localhost" &&
+      window.location.hostname !== "127.0.0.1"
+    ) {
+      return `${window.location.protocol}//${window.location.hostname}:8000`;
+    }
+  }
+  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+}
 
 export const apiClient = {
   async get<T>(path: string): Promise<T> {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const baseUrl = getApiBaseUrl();
+    const res = await fetch(`${baseUrl}${path}`, {
       headers: {
         "Content-Type": "application/json",
       },
@@ -12,7 +30,8 @@ export const apiClient = {
   },
 
   async post<T>(path: string, body?: any): Promise<T> {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const baseUrl = getApiBaseUrl();
+    const res = await fetch(`${baseUrl}${path}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -24,7 +43,8 @@ export const apiClient = {
   },
 
   async patch<T>(path: string, body: any): Promise<T> {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const baseUrl = getApiBaseUrl();
+    const res = await fetch(`${baseUrl}${path}`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -36,7 +56,8 @@ export const apiClient = {
   },
 
   async put<T>(path: string, body: any): Promise<T> {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const baseUrl = getApiBaseUrl();
+    const res = await fetch(`${baseUrl}${path}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -48,7 +69,8 @@ export const apiClient = {
   },
 
   async delete(path: string): Promise<void> {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const baseUrl = getApiBaseUrl();
+    const res = await fetch(`${baseUrl}${path}`, {
       method: "DELETE",
     });
     if (!res.ok) throw new Error(`API error: ${res.statusText}`);
@@ -60,8 +82,9 @@ export const apiClient = {
     onProgress?: (progress: number) => void
   ): Promise<T> {
     return new Promise((resolve, reject) => {
+      const baseUrl = getApiBaseUrl();
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${API_BASE_URL}${path}`);
+      xhr.open("POST", `${baseUrl}${path}`);
       
       if (onProgress && xhr.upload) {
         xhr.upload.onprogress = (event) => {
