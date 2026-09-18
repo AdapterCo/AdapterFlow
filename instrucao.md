@@ -189,3 +189,4 @@ Documentação oficial: TODO: consultar documentação oficial
 | 2026-09-17 | Pytest suite com testes de normalização de preço, quantidade e sanitização de nomes passando |
 | 2026-09-17 | Next.js 15 compilado com sucesso com todas as 15 rotas e componentes UI shadcn |
 | 2026-09-17 | Fase 1 concluída com sucesso |
+| 2026-09-18 | Validação com página real do catálogo LEHMOX: grid 3x3 calibrado, extração dos 9 produtos confirmada por testes automatizados (códigos, preços Unid.CX, quantidades PCS/CX, dimensões e cores) |
