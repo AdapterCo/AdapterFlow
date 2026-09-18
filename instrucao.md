@@ -102,10 +102,15 @@ AdapterFlow/
 - Status: UPLOADED → PROCESSING → REVIEW_REQUIRED → IMPORTED / FAILED
 - Nunca publicar automaticamente após importação
 
-### Precificação (Futuro — Fase 2)
-- Motor separado das integrações
-- Taxas configuráveis, NUNCA hardcoded
-- Testes automatizados obrigatórios
+### Precificação (Fase 2 - Implementada)
+- Motor matemático puro (`app.pricing.engine`) estritamente desacoplado de APIs externas.
+- Utilização exclusiva de `Decimal` (Python) e `NUMERIC` (PostgreSQL) para cálculos centavo por centavo.
+- Formação pelo Preço de Venda (Markup Divisor / Margem Líquida Real):
+  `PV = (Custo Base + Custos Fixos + Taxas Fixas) / (1 - (Comissões + Impostos + Operacional + Margem Líquida))`
+- Suporte a limiares dinâmicos de frete grátis e taxa fixa para produtos de baixo valor.
+- Estratégias de arredondamento comercial: `ENDS_90`, `ENDS_99`, `ROUND_INTEGER`, `EXACT`.
+- DRE Unitária detalhada persistida em JSONB e calculada em tempo real.
+- Modelos: `PricingProfile` e `ProductChannelPrice`.
 
 ### Storage
 - Abstração StorageService (put, get, delete, exists, get_url)
@@ -143,7 +148,7 @@ Documentação oficial: TODO: consultar documentação oficial
 | Fase | Descrição | Status |
 |---|---|---|
 | 1 | Infraestrutura, importação PDF, produtos, fornecedores | COMPLETED |
-| 2 | Motor de precificação | NOT_STARTED |
+| 2 | Motor de precificação | COMPLETED |
 | 3 | Mercado Livre | NOT_STARTED |
 | 4 | Shopee | NOT_STARTED |
 | 5 | Amazon | NOT_STARTED |
