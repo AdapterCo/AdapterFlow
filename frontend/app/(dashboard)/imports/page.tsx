@@ -1,0 +1,289 @@
+"use client";
+
+import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { useDropzone } from "react-dropzone";
+import { useImports, useUploadImport } from "@/hooks/use-imports";
+import { useSuppliers } from "@/hooks/use-suppliers";
+import { formatDate } from "@/lib/utils";
+
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Loader2, Plus, UploadCloud, File, X } from "lucide-react";
+import { toast } from "sonner";
+
+export default function ImportsPage() {
+  const router = useRouter();
+  const { data, isLoading } = useImports(0, 50);
+  const { data: suppliersData } = useSuppliers(0, 100);
+  const uploadImport = useUploadImport();
+
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [selectedSupplier, setSelectedSupplier] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    const file = acceptedFiles[0];
+    if (file && file.type === "application/pdf") {
+      if (file.size > 50 * 1024 * 1024) {
+        toast.error("O arquivo excede o limite de 50MB.");
+        return;
+      }
+      setSelectedFile(file);
+    } else {
+      toast.error("Por favor, selecione um arquivo PDF válido.");
+    }
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: { "application/pdf": [".pdf"] },
+    maxFiles: 1,
+  });
+
+  const handleUpload = () => {
+    if (!selectedSupplier) {
+      toast.error("Selecione um fornecedor.");
+      return;
+    }
+    if (!selectedFile) {
+      toast.error("Selecione um arquivo PDF.");
+      return;
+    }
+
+    setUploadProgress(0);
+    uploadImport.mutate(
+      {
+        file: selectedFile,
+        supplierId: selectedSupplier,
+        onProgress: (p) => setUploadProgress(p),
+      },
+      {
+        onSuccess: () => {
+          toast.success("Arquivo enviado com sucesso. Processamento iniciado.");
+          setIsDialogOpen(false);
+          setSelectedFile(null);
+          setSelectedSupplier("");
+          setUploadProgress(0);
+        },
+        onError: (err) => {
+          toast.error(`Erro ao enviar: ${err.message}`);
+          setUploadProgress(0);
+        },
+      }
+    );
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "COMPLETED":
+        return <Badge className="bg-green-500">Concluído</Badge>;
+      case "PROCESSING":
+        return <Badge className="bg-blue-500">Processando</Badge>;
+      case "REVIEW_NEEDED":
+        return <Badge className="bg-orange-500">Revisão Necessária</Badge>;
+      case "FAILED":
+        return <Badge variant="destructive">Falha</Badge>;
+      default:
+        return <Badge variant="secondary">{status}</Badge>;
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold tracking-tight">Importações</h2>
+        <Button onClick={() => setIsDialogOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          Nova Importação
+        </Button>
+      </div>
+
+      <div className="rounded-md border bg-white">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Arquivo</TableHead>
+              <TableHead>Fornecedor</TableHead>
+              <TableHead>Data</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Itens (Det / Imp / Err)</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={5} className="h-24 text-center">
+                  <Loader2 className="mx-auto h-6 w-6 animate-spin text-zinc-500" />
+                </TableCell>
+              </TableRow>
+            ) : data?.items.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                  Nenhuma importação realizada.
+                </TableCell>
+              </TableRow>
+            ) : (
+              data?.items.map((job) => (
+                <TableRow 
+                  key={job.id} 
+                  className={job.status === "REVIEW_NEEDED" ? "cursor-pointer hover:bg-zinc-50" : ""}
+                  onClick={() => {
+                    if (job.status === "REVIEW_NEEDED") {
+                      router.push(`/imports/${job.id}/review`);
+                    }
+                  }}
+                >
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      <File className="h-4 w-4 text-zinc-400" />
+                      {job.original_filename}
+                    </div>
+                  </TableCell>
+                  <TableCell>{job.supplier?.name || "Desconhecido"}</TableCell>
+                  <TableCell>{formatDate(job.created_at)}</TableCell>
+                  <TableCell>{getStatusBadge(job.status)}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2 text-sm">
+                      <span className="text-zinc-600 font-medium" title="Detectados">{job.items_detected}</span>
+                      <span className="text-zinc-300">/</span>
+                      <span className="text-green-600 font-medium" title="Importados">{job.items_imported}</span>
+                      <span className="text-zinc-300">/</span>
+                      <span className="text-red-600 font-medium" title="Erros">{job.items_failed}</span>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Nova Importação</DialogTitle>
+            <DialogDescription>
+              Envie um arquivo PDF do catálogo do fornecedor para extração automática.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 pt-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Fornecedor</label>
+              <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione um fornecedor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {suppliersData?.items.filter(s => s.status === "ACTIVE").map((supplier) => (
+                    <SelectItem key={supplier.id} value={supplier.id}>
+                      {supplier.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Arquivo PDF</label>
+              {!selectedFile ? (
+                <div 
+                  {...getRootProps()} 
+                  className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
+                    ${isDragActive ? "border-primary bg-primary/5" : "border-zinc-200 hover:border-primary/50 hover:bg-zinc-50"}`}
+                >
+                  <input {...getInputProps()} />
+                  <UploadCloud className="mx-auto h-10 w-10 text-zinc-400 mb-4" />
+                  <p className="text-sm font-medium mb-1">
+                    Arraste o arquivo PDF aqui ou clique para selecionar
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Apenas arquivos .pdf até 50MB
+                  </p>
+                </div>
+              ) : (
+                <div className="border rounded-lg p-4 flex items-center justify-between bg-zinc-50">
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <File className="h-8 w-8 text-blue-500 shrink-0" />
+                    <div className="truncate">
+                      <p className="text-sm font-medium truncate">{selectedFile.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                    </div>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => setSelectedFile(null)}
+                    disabled={uploadImport.isPending}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {uploadImport.isPending && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Enviando arquivo...</span>
+                  <span>{uploadProgress}%</span>
+                </div>
+                <Progress value={uploadProgress} className="h-2" />
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-4 border-t">
+              <Button 
+                variant="outline" 
+                onClick={() => setIsDialogOpen(false)}
+                disabled={uploadImport.isPending}
+              >
+                Cancelar
+              </Button>
+              <Button 
+                onClick={handleUpload}
+                disabled={!selectedSupplier || !selectedFile || uploadImport.isPending}
+              >
+                {uploadImport.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Enviando...
+                  </>
+                ) : (
+                  "Iniciar Importação"
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
