@@ -1,0 +1,69 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-adapterflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-adapterflow_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-adapterflow}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-adapterflow} -d ${POSTGRES_DB:-adapterflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - adapterflow
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-adapterflow}:${POSTGRES_PASSWORD:-adapterflow_dev}@db:5432/${POSTGRES_DB:-adapterflow}"
+      STORAGE_PATH: /app/storage
+      BACKEND_CORS_ORIGINS: '["http://localhost:3000","http://localhost:${FRONTEND_PORT:-3000}"]'
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app
+      - backend_storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    networks:
+      - adapterflow
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: "http://localhost:${BACKEND_PORT:-8000}"
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+    command: npm run dev
+    networks:
+      - adapterflow
+
+volumes:
+  postgres_data:
+  backend_storage:
+
+networks:
+  adapterflow:
+    driver: bridge
