@@ -27,7 +27,8 @@ async def _handle_upload(db: DBSession, storage: Storage, supplier_id: UUID, fil
     await service.process_import(db, job.id, storage)
     return await repo.get_job(db, job.id)
 
-@router.post("/", response_model=ImportJobResponse)
+@router.post("", response_model=ImportJobResponse)
+@router.post("/", response_model=ImportJobResponse, include_in_schema=False)
 async def upload_import(db: DBSession, storage: Storage, supplier_id: UUID = Form(...), file: UploadFile = File(...)):
     return await _handle_upload(db, storage, supplier_id, file)
 
@@ -35,7 +36,8 @@ async def upload_import(db: DBSession, storage: Storage, supplier_id: UUID = For
 async def upload_import_alias(db: DBSession, storage: Storage, supplier_id: UUID = Form(...), file: UploadFile = File(...)):
     return await _handle_upload(db, storage, supplier_id, file)
 
-@router.get("/", response_model=ImportJobListResponse)
+@router.get("", response_model=ImportJobListResponse)
+@router.get("/", response_model=ImportJobListResponse, include_in_schema=False)
 async def list_imports(db: DBSession, skip: int = 0, limit: int = 100):
     items = await repo.list_jobs(db, skip, limit)
     total = await repo.count_jobs(db)

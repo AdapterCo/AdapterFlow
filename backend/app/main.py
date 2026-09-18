@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+import re
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.v1.router import api_router
@@ -14,6 +15,16 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     lifespan=lifespan
 )
+
+@app.middleware("http")
+async def sanitize_redirect_location(request: Request, call_next):
+    response = await call_next(request)
+    if 300 <= response.status_code < 400 and "location" in response.headers:
+        loc = response.headers["location"]
+        # Convert any absolute URL containing backend or localhost to a relative path
+        loc = re.sub(r"^https?://(?:backend|localhost|127\.0\.0\.1)(?::\d+)?", "", loc)
+        response.headers["location"] = loc
+    return response
 
 app.add_middleware(
     CORSMiddleware,

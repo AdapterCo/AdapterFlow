@@ -9,7 +9,8 @@ import mimetypes
 router = APIRouter()
 service = ProductService()
 
-@router.get("/", response_model=ProductListResponse)
+@router.get("", response_model=ProductListResponse)
+@router.get("/", response_model=ProductListResponse, include_in_schema=False)
 async def list_products(db: DBSession, skip: int = 0, limit: int = 100, search: Optional[str] = None, status: Optional[str] = None):
     return await service.list_products(db, skip, limit, search, status)
 

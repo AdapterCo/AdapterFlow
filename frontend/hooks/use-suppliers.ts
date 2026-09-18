@@ -5,7 +5,7 @@ import { Supplier, SupplierCreate, SupplierUpdate, PaginatedResponse } from "@/t
 export function useSuppliers(skip = 0, limit = 100) {
   return useQuery({
     queryKey: ["suppliers", skip, limit],
-    queryFn: () => apiClient.get<PaginatedResponse<Supplier>>(`/api/v1/suppliers/?skip=${skip}&limit=${limit}`),
+    queryFn: () => apiClient.get<PaginatedResponse<Supplier>>(`/api/v1/suppliers?skip=${skip}&limit=${limit}`),
   });
 }
 
@@ -21,7 +21,7 @@ export function useCreateSupplier() {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: (data: SupplierCreate) => apiClient.post<Supplier>("/api/v1/suppliers/", data),
+    mutationFn: (data: SupplierCreate) => apiClient.post<Supplier>("/api/v1/suppliers", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["suppliers"] });
     },

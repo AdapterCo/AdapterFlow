@@ -7,11 +7,13 @@ from app.api.deps import DBSession
 router = APIRouter()
 service = SupplierService()
 
-@router.post("/", response_model=SupplierResponse)
+@router.post("", response_model=SupplierResponse)
+@router.post("/", response_model=SupplierResponse, include_in_schema=False)
 async def create_supplier(data: SupplierCreate, db: DBSession):
     return await service.create(db, data)
 
-@router.get("/", response_model=SupplierList)
+@router.get("", response_model=SupplierList)
+@router.get("/", response_model=SupplierList, include_in_schema=False)
 async def list_suppliers(db: DBSession, skip: int = 0, limit: int = 100):
     items = await service.list_all(db, skip, limit)
     total = await service.count(db)

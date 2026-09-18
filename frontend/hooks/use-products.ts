@@ -10,7 +10,7 @@ export function useProducts(skip = 0, limit = 100, search?: string, status?: Sta
       if (search) params.append("search", search);
       if (status) params.append("status", status);
       
-      return apiClient.get<PaginatedResponse<Product>>(`/api/v1/products/?${params.toString()}`);
+      return apiClient.get<PaginatedResponse<Product>>(`/api/v1/products?${params.toString()}`);
     },
   });
 }

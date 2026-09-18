@@ -5,7 +5,7 @@ import { ImportJob, ImportItem, ImportItemUpdate, PaginatedResponse } from "@/ty
 export function useImports(skip = 0, limit = 100) {
   return useQuery({
     queryKey: ["imports", skip, limit],
-    queryFn: () => apiClient.get<PaginatedResponse<ImportJob>>(`/api/v1/imports/?skip=${skip}&limit=${limit}`),
+    queryFn: () => apiClient.get<PaginatedResponse<ImportJob>>(`/api/v1/imports?skip=${skip}&limit=${limit}`),
   });
 }
 
