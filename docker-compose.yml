@@ -27,7 +27,7 @@ services:
     environment:
       DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-adapterflow}:${POSTGRES_PASSWORD:-adapterflow_dev}@db:5432/${POSTGRES_DB:-adapterflow}"
       STORAGE_PATH: /app/storage
-      BACKEND_CORS_ORIGINS: '["http://localhost:3099","http://localhost:3000","http://localhost:${FRONTEND_PORT:-3099}"]'
+      BACKEND_CORS_ORIGINS: '["https://${DOMAIN:-flow.adapterco.com.br}","http://${DOMAIN:-flow.adapterco.com.br}","http://localhost:3099","http://localhost:3000","http://localhost:${FRONTEND_PORT:-3099}"]'
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
@@ -52,8 +52,20 @@ services:
       - "${FRONTEND_PORT:-3099}:3099"
     depends_on:
       - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik9"
+      - "traefik.http.routers.adapterflow-web-http.rule=Host(${DOMAIN:-flow.adapterco.com.br})"
+      - "traefik.http.routers.adapterflow-web-http.entrypoints=http"
+      - "traefik.http.routers.adapterflow-web-http.middlewares=https-redirect"
+      - "traefik.http.routers.adapterflow-web.rule=Host(${DOMAIN:-flow.adapterco.com.br})"
+      - "traefik.http.routers.adapterflow-web.entrypoints=https"
+      - "traefik.http.routers.adapterflow-web.tls=true"
+      - "traefik.http.routers.adapterflow-web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.adapterflow-web.loadbalancer.server.port=3099"
     networks:
       - adapterflow
+      - traefik9
 
 volumes:
   postgres_data:
@@ -62,3 +74,5 @@ volumes:
 networks:
   adapterflow:
     driver: bridge
+  traefik9:
+    external: true
