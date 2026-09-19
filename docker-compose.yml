@@ -41,13 +41,16 @@ services:
     networks:
       - adapterflow
 
-  frontend:
+  adapterflow-web:
+    container_name: adapterflow-web
     build:
       context: ./frontend
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
       INTERNAL_BACKEND_URL: "http://backend:8000"
+      HOSTNAME: "0.0.0.0"
+      PORT: "3099"
     ports:
       - "${FRONTEND_PORT:-3099}:3099"
     depends_on:
@@ -62,6 +65,7 @@ services:
       - "traefik.http.routers.adapterflow-web.entrypoints=https"
       - "traefik.http.routers.adapterflow-web.tls=true"
       - "traefik.http.routers.adapterflow-web.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.adapterflow-web.service=adapterflow-web"
       - "traefik.http.services.adapterflow-web.loadbalancer.server.port=3099"
     networks:
       - adapterflow
