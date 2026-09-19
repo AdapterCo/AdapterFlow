@@ -31,7 +31,6 @@ services:
     expose:
       - "8000"
     volumes:
-      - ./backend:/app
       - backend_storage:/app/storage
     depends_on:
       db:
@@ -58,10 +57,10 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik9"
-      - "traefik.http.routers.adapterflow-web-http.rule=Host(${DOMAIN:-flow.adapterco.com.br})"
+      - "traefik.http.routers.adapterflow-web-http.rule=Host(`flow.adapterco.com.br`)"
       - "traefik.http.routers.adapterflow-web-http.entrypoints=http"
       - "traefik.http.routers.adapterflow-web-http.middlewares=https-redirect"
-      - "traefik.http.routers.adapterflow-web.rule=Host(${DOMAIN:-flow.adapterco.com.br})"
+      - "traefik.http.routers.adapterflow-web.rule=Host(`flow.adapterco.com.br`)"
       - "traefik.http.routers.adapterflow-web.entrypoints=https"
       - "traefik.http.routers.adapterflow-web.tls=true"
       - "traefik.http.routers.adapterflow-web.tls.certresolver=letsencrypt"

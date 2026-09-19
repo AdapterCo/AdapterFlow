@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   skipTrailingSlashRedirect: true,
   async rewrites() {
     const backendUrl = process.env.INTERNAL_BACKEND_URL || "http://backend:8000";
