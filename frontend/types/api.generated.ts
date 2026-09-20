@@ -553,6 +553,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/marketplaces/mercadolivre/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Notifications
+         * @description Public durable receipt only. Does not verify origin or synchronize business data.
+         */
+        post: operations["notifications_api_v1_marketplaces_mercadolivre_notifications_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/": {
         parameters: {
             query?: never;
@@ -955,6 +975,14 @@ export interface components {
             channels: components["schemas"]["MarketplaceChannelStatus"][];
             /** Accounts */
             accounts: components["schemas"]["MarketplaceAccountResponse"][];
+        };
+        /** NotificationReceipt */
+        NotificationReceipt: {
+            /**
+             * Status
+             * @default received
+             */
+            status: string;
         };
         /** OAuthCallbackRequest */
         OAuthCallbackRequest: {
@@ -2739,6 +2767,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    notifications_api_v1_marketplaces_mercadolivre_notifications_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Id */
+                    _id?: string | null;
+                    /** Resource */
+                    resource: string;
+                    /** User Id */
+                    user_id: number;
+                    /** Application Id */
+                    application_id: number;
+                    /** Topic */
+                    topic: string;
+                    /** Attempts */
+                    attempts?: number | null;
+                    /** Sent */
+                    sent?: string | null;
+                    /** Received */
+                    received?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationReceipt"];
                 };
             };
         };

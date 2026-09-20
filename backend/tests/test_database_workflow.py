@@ -17,6 +17,28 @@ from app.repositories.product_repository import ProductRepository
 pytestmark = pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="Dedicated PostgreSQL integration database not configured")
 
 @pytest.mark.asyncio
+async def test_notification_inbox_is_durable_and_deduplicates():
+    from app.models.marketplace_notification import MarketplaceNotification
+    from app.repositories.marketplace_notification import save_notification
+    engine = create_async_engine(os.environ["TEST_DATABASE_URL"], hide_parameters=True)
+    try:
+        async with engine.connect() as connection:
+            outer = await connection.begin()
+            async with AsyncSession(bind=connection, join_transaction_mode="create_savepoint") as session:
+                key = uuid4().hex
+                await save_notification(session, key, {"topic": "synthetic-test"})
+                await session.commit()
+                await save_notification(session, key, {"topic": "synthetic-test"})
+                await session.commit()
+                rows = (await session.scalars(select(MarketplaceNotification).where(MarketplaceNotification.deduplication_key == key))).all()
+                assert len(rows) == 1
+                assert rows[0].status == "RECEIVED_UNVERIFIED"
+                assert rows[0].received_at.tzinfo is not None
+            await outer.rollback()
+    finally:
+        await engine.dispose()
+
+@pytest.mark.asyncio
 async def test_import_identity_review_idempotency_and_atomicity():
     engine = create_async_engine(os.environ["TEST_DATABASE_URL"], hide_parameters=True)
     try:

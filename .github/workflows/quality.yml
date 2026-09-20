@@ -46,6 +46,7 @@ jobs:
       - run: npx openapi-typescript ../docs/openapi.json -o types/api.generated.ts
       - run: git diff --exit-code -- types/api.generated.ts
       - run: npm run lint -- --max-warnings=0
+      - run: node scripts/test-middleware.mjs
       - run: npx tsc --noEmit --incremental false
       - run: npm run build
       - run: node scripts/smoke-auth.mjs

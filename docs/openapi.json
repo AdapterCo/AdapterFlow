@@ -2028,6 +2028,119 @@
         }
       }
     },
+    "/api/v1/marketplaces/mercadolivre/notifications": {
+      "post": {
+        "tags": [
+          "Marketplace notifications"
+        ],
+        "summary": "Notifications",
+        "description": "Public durable receipt only. Does not verify origin or synchronize business data.",
+        "operationId": "notifications_api_v1_marketplaces_mercadolivre_notifications_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Id"
+                  },
+                  "resource": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "minLength": 2,
+                    "pattern": "^/[^/\\s]",
+                    "title": "Resource"
+                  },
+                  "user_id": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0.0,
+                    "title": "User Id"
+                  },
+                  "application_id": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0.0,
+                    "title": "Application Id"
+                  },
+                  "topic": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "minLength": 1,
+                    "pattern": "^[a-zA-Z0-9_-]+$",
+                    "title": "Topic"
+                  },
+                  "attempts": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1.0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Attempts"
+                  },
+                  "sent": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Sent"
+                  },
+                  "received": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Received"
+                  }
+                },
+                "type": "object",
+                "required": [
+                  "resource",
+                  "user_id",
+                  "application_id",
+                  "topic"
+                ],
+                "title": "MercadoLivreNotification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationReceipt"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/": {
       "get": {
         "summary": "Root",
@@ -3253,6 +3366,17 @@
           "accounts"
         ],
         "title": "MarketplacesOverviewResponse"
+      },
+      "NotificationReceipt": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "received"
+          }
+        },
+        "type": "object",
+        "title": "NotificationReceipt"
       },
       "OAuthCallbackRequest": {
         "properties": {
