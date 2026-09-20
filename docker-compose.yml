@@ -98,6 +98,7 @@ services:
     depends_on:
       adapterflow-backend:
         condition: service_healthy
+        restart: true
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik9"

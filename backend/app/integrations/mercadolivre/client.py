@@ -1,11 +1,15 @@
 """Mercado Livre endpoints verified against official documentation (see docs)."""
 from datetime import datetime, timedelta, timezone
 import asyncio
+import logging
+import re
 from urllib.parse import urlencode
 import httpx
 import simplejson
 from fastapi import HTTPException
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 AUTH_URL_MLB = "https://auth.mercadolivre.com.br/authorization"
 API_BASE_URL = "https://api.mercadolibre.com"
@@ -32,7 +36,9 @@ class MercadoLivreClient:
         return AUTH_URL_MLB + "?" + urlencode({"response_type": "code", "client_id": self.app_id, "redirect_uri": self.redirect_uri, "state": state})
 
     async def _request(self, method, path, access_token=None, payload=None, form=None, files=None):
-        headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+        headers = {"Accept": "application/json"}
+        if access_token:
+            headers["Authorization"] = f"Bearer {access_token}"
         options = {}
         if payload is not None:
             headers["Content-Type"] = "application/json"
@@ -58,13 +64,42 @@ class MercadoLivreClient:
         if response.status_code >= 400:
             # Do not forward remote response text: it can contain request credentials.
             code = 401 if response.status_code in (401, 403) else 422 if response.status_code == 400 else 502
-            raise HTTPException(code, f"Mercado Livre recusou a operação (HTTP {response.status_code}). Revise os dados ou reconecte a conta.")
+            reason = self._error_reason(response, form)
+            logger.warning("Mercado Livre HTTP %s em %s %s: %s", response.status_code, method, path.split("?")[0], reason or "sem detalhe")
+            raise HTTPException(code, self._error_message(path, response.status_code, reason))
         if response.status_code == 204 or not response.content:
             return {}
         try:
             return simplejson.loads(response.content, use_decimal=True)
         except ValueError:
             raise HTTPException(502, "Resposta inválida do Mercado Livre.")
+
+    @staticmethod
+    def _error_reason(response, form):
+        """Short error code from the provider body (e.g. invalid_grant); never values we sent."""
+        try:
+            body = simplejson.loads(response.content)
+        except ValueError:
+            return ""
+        if not isinstance(body, dict):
+            return ""
+        reason = " ".join(str(body[key]) for key in ("error", "message") if isinstance(body.get(key), str))[:120]
+        if any(str(value) and str(value) in reason for value in (form or {}).values()):
+            return ""
+        return reason if re.fullmatch(r"[\w .,:;()'\"/-]*", reason) else ""
+
+    @staticmethod
+    def _error_message(path, status, reason):
+        text = reason.lower()
+        if path.startswith("/oauth/token"):
+            if "invalid_client" in text or "client_secret" in text or "client_id" in text:
+                return "Mercado Livre não reconheceu o App ID ou o Client Secret do servidor. Confira MERCADOLIVRE_APP_ID e MERCADOLIVRE_CLIENT_SECRET (mesma aplicação)."
+            if "redirect" in text:
+                return "O redirect_uri enviado difere do cadastrado no painel do Mercado Livre. Confira MERCADOLIVRE_REDIRECT_URI."
+            if "invalid_grant" in text or "code" in text or "expired" in text or "used" in text:
+                return "O código de autorização expirou, já foi usado ou não pertence a esta aplicação. Volte para Marketplaces e clique em Autorizar conta; não recarregue esta página."
+        suffix = f" [{reason}]" if reason else ""
+        return f"Mercado Livre recusou a operação (HTTP {status}). Revise os dados ou reconecte a conta.{suffix}"
 
     async def _token(self, fields):
         if not self.is_configured():
