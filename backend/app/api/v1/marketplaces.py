@@ -1,7 +1,9 @@
 from typing import Optional
 from uuid import UUID
-from fastapi import APIRouter, status, Query
+from fastapi import APIRouter, status, Query, Depends, Request, Response
 from app.api.deps import DBSession
+from app.core.security import require_admin
+from app.core.config import settings
 from app.schemas.marketplace import (
     MarketplacesOverviewResponse,
     MarketplaceAccountResponse,
@@ -39,9 +41,11 @@ async def disconnect_account(id: UUID, db: DBSession):
 
 
 @router.get("/mercadolivre/auth-url")
-def get_mercadolivre_auth_url():
-    """Gera a URL de autorização oficial do Mercado Livre para conectar uma conta."""
-    url = service.client.get_authorization_url()
+async def get_mercadolivre_auth_url(db: DBSession, response: Response, owner: str = Depends(require_admin)):
+    url, browser = await service.start_oauth(db, owner)
+    response.set_cookie("ml_oauth", browser, max_age=600, httponly=True,
+                        secure=bool(settings.MERCADOLIVRE_REDIRECT_URI and settings.MERCADOLIVRE_REDIRECT_URI.startswith("https://")),
+                        samesite="lax", path="/api/v1/marketplaces/mercadolivre")
     return {"auth_url": url}
 
 
@@ -51,19 +55,21 @@ def get_mercadolivre_auth_url():
     status_code=status.HTTP_201_CREATED,
 )
 async def mercadolivre_oauth_callback(
-    request: OAuthCallbackRequest, db: DBSession
+    request: OAuthCallbackRequest, db: DBSession, http_request: Request, response: Response, owner: str = Depends(require_admin)
 ):
     """Processa o código recebido do Mercado Livre e conclui a autenticação da conta."""
-    return await service.handle_oauth_callback(db, request.code)
+    result = await service.handle_oauth_callback(db, request.code, request.state, http_request.cookies.get("ml_oauth"), owner)
+    response.delete_cookie("ml_oauth", path="/api/v1/marketplaces/mercadolivre")
+    return result
 
 
 @router.get(
     "/mercadolivre/categories/predict",
     response_model=list[CategoryPredictionItem],
 )
-async def predict_category(q: str = Query(..., min_length=2)):
+async def predict_category(db: DBSession, account_id: UUID, q: str = Query(..., min_length=2, max_length=60)):
     """Sugere categorias no Mercado Livre a partir do título do produto."""
-    return await service.predict_category(q)
+    return await service.predict_category(db, account_id, q)
 
 
 @router.post(
@@ -84,10 +90,23 @@ async def list_marketplace_listings(
     product_id: Optional[UUID] = None,
     account_id: Optional[UUID] = None,
     status: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
 ):
     """Lista anúncios e publicações nos marketplaces."""
     return await service.list_listings(
         db, product_id, account_id, status, skip, limit
     )
+
+@router.get("/mercadolivre/categories/{category_id}/attributes")
+async def category_attributes(category_id: str, account_id: UUID, db: DBSession):
+    import re
+    from fastapi import HTTPException
+    if not re.fullmatch(r"MLB[0-9]+", category_id):
+        raise HTTPException(422, "Categoria inválida.")
+    return await service.category_attributes(db, account_id, category_id)
+
+
+@router.post("/listings/{listing_id}/reconcile", response_model=MarketplaceListingResponse)
+async def reconcile_listing(listing_id: UUID, db: DBSession, external_id: str | None = Query(None, pattern=r"^MLB[0-9]+$")):
+    return await service.reconcile(db, listing_id, external_id)

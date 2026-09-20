@@ -5,7 +5,7 @@ from app.api.deps import DBSession
 from unittest.mock import AsyncMock
 
 @pytest.mark.asyncio
-async def test_create_and_list_suppliers():
+async def test_create_and_list_suppliers(monkeypatch):
     # Mocking db session to verify repository/service contracts
     mock_db = AsyncMock()
     
@@ -20,7 +20,6 @@ async def test_create_and_list_suppliers():
         "is_active": True,
         "created_at": "2026-09-18T12:00:00Z",
         "updated_at": None,
-        "status": "ACTIVE"
     }
     
     async def override_get_db():
@@ -36,9 +35,9 @@ async def test_create_and_list_suppliers():
         
         # Test mock return
         from app.schemas.supplier import SupplierResponse
-        SupplierService.create = AsyncMock(return_value=SupplierResponse(**fake_supplier))
-        SupplierService.list_all = AsyncMock(return_value=[SupplierResponse(**fake_supplier)])
-        SupplierService.count = AsyncMock(return_value=1)
+        monkeypatch.setattr(SupplierService, "create", AsyncMock(return_value=SupplierResponse(**fake_supplier)))
+        monkeypatch.setattr(SupplierService, "list_all", AsyncMock(return_value=[SupplierResponse(**fake_supplier)]))
+        monkeypatch.setattr(SupplierService, "count", AsyncMock(return_value=1))
         
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             # 1. Test POST /api/v1/suppliers

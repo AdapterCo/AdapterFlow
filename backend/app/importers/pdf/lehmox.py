@@ -23,10 +23,10 @@ Strategy:
 import re
 import hashlib
 import logging
-from typing import Optional
 from decimal import Decimal, InvalidOperation
 
-import fitz  # PyMuPDF
+import pymupdf as fitz
+from app.core.config import settings
 
 from app.importers.base import BaseCatalogImporter, ExtractedProduct
 
@@ -103,6 +103,8 @@ def normalize_price(raw: str) -> tuple[Decimal | None, list[str]]:
 
     warnings: list[str] = []
     original = raw.strip()
+    if "-" in original:
+        return None, ["Preço negativo ou ambíguo: requer revisão."]
 
     # Extract numeric price part if inside label e.g. "Unid.CX:RS8.50"
     pill_match = PRICE_PILL_REGEX.search(original)
@@ -133,6 +135,8 @@ def normalize_price(raw: str) -> tuple[Decimal | None, list[str]]:
 
         value = Decimal(clean)
 
+        if not value.is_finite():
+            return None, ["Preço não finito: requer revisão."]
         if value < 0:
             warnings.append(f"Negative price detected: {original}")
 
@@ -199,6 +203,8 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
         all_products: list[ExtractedProduct] = []
 
         try:
+            if not doc.is_pdf or doc.needs_pass or not 0 < len(doc) <= settings.MAX_PDF_PAGES:
+                raise ValueError("PDF inválido, protegido ou excede o limite de páginas.")
             for page_idx in range(len(doc)):
                 page = doc[page_idx]
                 page_num = page_idx + 1
@@ -207,6 +213,11 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
 
                 # 1. Extract text blocks with position info
                 text_data = page.get_text("dict")
+                if not page.get_text().strip():
+                    if not settings.OCR_ENABLED:
+                        raise ValueError("OCR_REQUIRED: PDF sem texto nativo; habilite OCR no servidor.")
+                    textpage = page.get_textpage_ocr(language=settings.OCR_LANGUAGE, dpi=150, full=True)
+                    text_data = page.get_text("dict", textpage=textpage)
                 text_blocks = self._extract_text_blocks(text_data, page_num)
 
                 # 2. Extract embedded images
@@ -281,25 +292,15 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
                     continue
 
                 img_rects = page.get_image_rects(xref)
-                bbox = None
-                cx, cy = 0.0, 0.0
-                if img_rects:
-                    rect = img_rects[0]
-                    bbox = (rect.x0, rect.y0, rect.x1, rect.y1)
-                    cx = (rect.x0 + rect.x1) / 2
-                    cy = (rect.y0 + rect.y1) / 2
-
-                images.append({
-                    "xref": xref,
-                    "data": base_image["image"],
-                    "ext": base_image.get("ext", "png"),
-                    "width": base_image.get("width", 0),
-                    "height": base_image.get("height", 0),
-                    "bbox": bbox,
-                    "cx": cx,
-                    "cy": cy,
-                    "page": page_num,
-                })
+                for rect in img_rects:
+                    images.append({
+                        "xref": xref, "data": base_image["image"],
+                        "ext": base_image.get("ext", "png"),
+                        "width": base_image.get("width", 0), "height": base_image.get("height", 0),
+                        "bbox": (rect.x0, rect.y0, rect.x1, rect.y1),
+                        "cx": (rect.x0 + rect.x1) / 2, "cy": (rect.y0 + rect.y1) / 2,
+                        "page": page_num,
+                    })
             except Exception as e:
                 logger.warning(f"Failed to extract image xref={xref} on page {page_num}: {e}")
 
@@ -354,8 +355,6 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
 
         # Determine column count and column boundaries
         # Group x coordinates of anchors (e.g. 3 columns)
-        x_coords = sorted(set(round(a["cx"] / 30) * 30 for a in code_anchors))
-        y_coords = sorted(set(round(a["cy"] / 50) * 50 for a in code_anchors))
 
         cards: list[dict] = []
 
@@ -367,7 +366,7 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
             left_neighbors = [a for a in code_anchors if a["cx"] < anchor["cx"] - 30 and abs(a["cy"] - anchor["cy"]) < 100]
             right_neighbors = [a for a in code_anchors if a["cx"] > anchor["cx"] + 30 and abs(a["cy"] - anchor["cy"]) < 100]
 
-            cell_x0 = (left_neighbors[0]["cx"] + anchor["cx"]) / 2 if left_neighbors else max(0, anchor["x0"] - 30)
+            cell_x0 = (max(a["cx"] for a in left_neighbors) + anchor["cx"]) / 2 if left_neighbors else max(0, anchor["x0"] - 30)
             cell_x1 = (right_neighbors[0]["cx"] + anchor["cx"]) / 2 if right_neighbors else min(page_w, anchor["x1"] + 150)
 
             # Find vertical bounds
@@ -422,11 +421,6 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
         h = hashlib.md5(data).hexdigest()
         if h in OUT_OF_STOCK_STAMP_HASHES:
             return True
-        w, height = img.get("width", 0), img.get("height", 0)
-        if height > 0:
-            ratio = w / height
-            if 2.3 <= ratio <= 2.7 and 80 <= height <= 280:
-                return True
         return False
 
     def _parse_card_fields(self, card: dict, anchor: dict) -> None:

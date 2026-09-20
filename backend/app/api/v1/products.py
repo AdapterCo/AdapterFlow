@@ -1,17 +1,16 @@
-from fastapi import APIRouter, HTTPException, Depends, Response
+from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 from uuid import UUID
-from app.schemas.product import ProductResponse, ProductListResponse, ProductWithDetailsResponse
+from app.schemas.product import ProductListResponse, ProductWithDetailsResponse, ProductUpdate, SupplierLinkUpdate
 from app.services.product_service import ProductService
-from app.api.deps import DBSession, Storage
-import mimetypes
+from app.api.deps import DBSession
 
 router = APIRouter()
 service = ProductService()
 
 @router.get("", response_model=ProductListResponse)
 @router.get("/", response_model=ProductListResponse, include_in_schema=False)
-async def list_products(db: DBSession, skip: int = 0, limit: int = 100, search: Optional[str] = None, status: Optional[str] = None):
+async def list_products(db: DBSession, skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), search: Optional[str] = None, status: Optional[str] = None):
     return await service.list_products(db, skip, limit, search, status)
 
 @router.get("/{id}", response_model=ProductWithDetailsResponse)
@@ -21,11 +20,17 @@ async def get_product(id: UUID, db: DBSession):
         raise HTTPException(status_code=404, detail="Product not found")
     return product
 
-@router.get("/{id}/images/{image_path:path}")
-async def get_product_image(id: UUID, image_path: str, storage: Storage):
-    try:
-        data = storage.get(image_path)
-        mime_type, _ = mimetypes.guess_type(image_path)
-        return Response(content=data, media_type=mime_type or "application/octet-stream")
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Image not found")
+@router.patch("/{id}", response_model=ProductWithDetailsResponse)
+async def update_product(id: UUID, data: ProductUpdate, db: DBSession):
+    values = data.model_dump(exclude_unset=True)
+    if any(values.get(key) is None for key in ("name", "status") if key in values):
+        raise HTTPException(422, "Nome e status não podem ser nulos.")
+    product = await service.repo.update(db, id, values)
+    if not product:
+        raise HTTPException(404, "Produto não encontrado.")
+    return await service.get_product_with_details(db, id)
+
+
+@router.patch("/{id}/suppliers/{supplier_data_id}", response_model=ProductWithDetailsResponse)
+async def update_supplier_link(id: UUID, supplier_data_id: UUID, data: SupplierLinkUpdate, db: DBSession):
+    return await service.update_supplier_link(db, id, supplier_data_id, data)

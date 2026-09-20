@@ -1,12 +1,14 @@
-from pydantic import BaseModel, ConfigDict, computed_field, field_validator
+from pydantic import BaseModel, ConfigDict, computed_field, Field, field_validator
 from uuid import UUID
 from datetime import datetime
 from typing import Optional
 
 class SupplierBase(BaseModel):
-    name: str
-    code: Optional[str] = None
+    name: str = Field(..., min_length=1, max_length=255)
+    code: Optional[str] = Field(None, max_length=100)
     contact_info: Optional[dict] = None
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     @field_validator("code", mode="before")
     @classmethod
@@ -19,8 +21,17 @@ class SupplierCreate(SupplierBase):
     pass
 
 class SupplierUpdate(BaseModel):
-    name: Optional[str] = None
-    code: Optional[str] = None
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    @field_validator("name", "is_active", mode="before")
+    @classmethod
+    def non_null(cls, value):
+        if value is None:
+            raise ValueError("Nome e atividade não podem ser nulos.")
+        return value
+
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    code: Optional[str] = Field(None, max_length=100)
     contact_info: Optional[dict] = None
     is_active: Optional[bool] = None
 

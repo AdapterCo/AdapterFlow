@@ -1,3 +1,5 @@
+> Registro anterior: consulte [a verificação de 19/09/2026](../mercadolivre-verificacao-2026-09-19.md) e [as correções](../correcoes-2026-09-19.md) para contratos e limitações atuais. Não representa homologação em produção.
+
 # Mercado Livre — Integração Oficial
 
 ## Status: IN_DEVELOPMENT (Fase 3)

@@ -5,14 +5,14 @@ from app.importers.pdf.lehmox import LehmoxCatalogImporter
 def test_out_of_stock_stamp_detection_unit():
     importer = LehmoxCatalogImporter()
     
-    # Check known stamp hash detection
+    # Aspect ratio alone must never imply stock availability
     fake_stamp_img = {
         "data": b"non-matching-data",
         "width": 464,
         "height": 184, # ratio = 464 / 184 = 2.5217
         "ext": "png"
     }
-    assert importer._is_out_of_stock_stamp(fake_stamp_img) is True
+    assert importer._is_out_of_stock_stamp(fake_stamp_img) is False
 
     # Check normal product image (e.g. 800x800 or 500x300)
     normal_img = {

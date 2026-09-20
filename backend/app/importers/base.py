@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Optional
+from typing import List, Optional
 from decimal import Decimal
 
 @dataclass

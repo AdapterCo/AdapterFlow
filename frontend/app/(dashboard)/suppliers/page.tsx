@@ -1,5 +1,6 @@
 "use client";
 
+import { Pagination } from "@/components/data-state";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -39,12 +40,14 @@ import { Loader2, Plus, Pencil, AlertCircle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 const formSchema = z.object({
-  name: z.string().min(2, "O nome deve ter pelo menos 2 caracteres"),
+  name: z.string().trim().min(2, "O nome deve ter pelo menos 2 caracteres"),
   code: z.string().optional(),
+  is_active: z.boolean(),
 });
 
 export default function SuppliersPage() {
-  const { data, isLoading, isError, error, refetch } = useSuppliers();
+  const [offset, setOffset] = useState(0);
+  const { data, isLoading, isError, error, refetch } = useSuppliers(offset, 50);
   const createSupplier = useCreateSupplier();
   const updateSupplier = useUpdateSupplier();
 
@@ -56,6 +59,7 @@ export default function SuppliersPage() {
     defaultValues: {
       name: "",
       code: "",
+      is_active: true,
     },
   });
 
@@ -65,12 +69,14 @@ export default function SuppliersPage() {
       form.reset({
         name: supplier.name,
         code: supplier.code || "",
+        is_active: supplier.is_active ?? false,
       });
     } else {
       setEditingSupplier(null);
       form.reset({
         name: "",
         code: "",
+      is_active: true,
       });
     }
     setIsDialogOpen(true);
@@ -79,12 +85,12 @@ export default function SuppliersPage() {
   const onSubmit = (values: z.infer<typeof formSchema>) => {
     const payload: SupplierCreate = {
       name: values.name.trim(),
-      code: values.code?.trim() || undefined,
+      code: values.code?.trim() || null,
     };
 
     if (editingSupplier) {
       updateSupplier.mutate(
-        { id: editingSupplier.id, data: payload },
+        { id: editingSupplier.id, data: { ...payload, is_active: values.is_active } },
         {
           onSuccess: () => {
             toast.success("Fornecedor atualizado com sucesso!");
@@ -181,6 +187,7 @@ export default function SuppliersPage() {
         </Table>
       </div>
 
+      {data && <Pagination offset={offset} total={data.total} onChange={setOffset} />}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -220,6 +227,7 @@ export default function SuppliersPage() {
                   </FormItem>
                 )}
               />
+              {editingSupplier && <label className="flex gap-2"><input type="checkbox" {...form.register("is_active")} />Fornecedor ativo</label>}
               <DialogFooter className="pt-4">
                 <Button 
                   type="button" 

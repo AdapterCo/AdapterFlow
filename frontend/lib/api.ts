@@ -12,10 +12,10 @@ function getApiBaseUrl(): string {
     return "";
   }
   // Server-side: use internal Docker service name
-  return process.env.INTERNAL_BACKEND_URL || "http://backend:8000";
+  return process.env.INTERNAL_BACKEND_URL || "http://localhost:8000";
 }
 
-const DEFAULT_TIMEOUT_MS = 15000;
+const DEFAULT_TIMEOUT_MS = 120000;
 
 async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();
@@ -27,9 +27,9 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise
       signal: controller.signal,
     });
     return res;
-  } catch (err: any) {
-    if (err.name === "AbortError") {
-      throw new Error("Tempo limite da requisição esgotado (timeout de 15s). Verifique sua conexão.");
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Tempo limite da requisição esgotado (timeout de 120s). Verifique sua conexão.");
     }
     throw err;
   } finally {
@@ -40,7 +40,7 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const errorBody = await res.json().catch(() => null);
-    const message = errorBody?.detail || `Erro na requisição: ${res.status} ${res.statusText}`;
+    const message = (Array.isArray(errorBody?.detail) ? errorBody.detail.map((item: { msg: string }) => item.msg).join("; ") : errorBody?.detail) || `Erro na requisição: ${res.status} ${res.statusText}`;
     throw new Error(message);
   }
   return res.json();
@@ -57,7 +57,7 @@ export const apiClient = {
     return handleResponse<T>(res);
   },
 
-  async post<T>(path: string, body?: any): Promise<T> {
+  async post<T>(path: string, body?: unknown): Promise<T> {
     const baseUrl = getApiBaseUrl();
     const res = await fetchWithTimeout(`${baseUrl}${path}`, {
       method: "POST",
@@ -69,7 +69,7 @@ export const apiClient = {
     return handleResponse<T>(res);
   },
 
-  async patch<T>(path: string, body: any): Promise<T> {
+  async patch<T>(path: string, body: unknown): Promise<T> {
     const baseUrl = getApiBaseUrl();
     const res = await fetchWithTimeout(`${baseUrl}${path}`, {
       method: "PATCH",
@@ -81,7 +81,7 @@ export const apiClient = {
     return handleResponse<T>(res);
   },
 
-  async put<T>(path: string, body: any): Promise<T> {
+  async put<T>(path: string, body: unknown): Promise<T> {
     const baseUrl = getApiBaseUrl();
     const res = await fetchWithTimeout(`${baseUrl}${path}`, {
       method: "PUT",
@@ -100,7 +100,7 @@ export const apiClient = {
     });
     if (!res.ok) {
       const errorBody = await res.json().catch(() => null);
-      const message = errorBody?.detail || `Erro ao deletar: ${res.status} ${res.statusText}`;
+      const message = (Array.isArray(errorBody?.detail) ? errorBody.detail.map((item: { msg: string }) => item.msg).join("; ") : errorBody?.detail) || `Erro ao deletar: ${res.status} ${res.statusText}`;
       throw new Error(message);
     }
   },
@@ -129,7 +129,7 @@ export const apiClient = {
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
             resolve(JSON.parse(xhr.responseText));
-          } catch (e) {
+          } catch {
             resolve(xhr.responseText as unknown as T);
           }
         } else {

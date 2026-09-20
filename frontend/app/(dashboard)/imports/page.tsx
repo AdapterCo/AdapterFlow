@@ -1,5 +1,9 @@
 "use client";
 
+import { Pagination, QueryError } from "@/components/data-state";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useDropzone } from "react-dropzone";
@@ -35,14 +39,21 @@ import { Progress } from "@/components/ui/progress";
 import { Loader2, Plus, UploadCloud, File, X } from "lucide-react";
 import { toast } from "sonner";
 
+const uploadSchema = z.object({ supplier: z.string().uuid(), layout: z.boolean().refine(value => value, "Confirme o layout LEHMOX.") });
+
 export default function ImportsPage() {
   const router = useRouter();
-  const { data, isLoading } = useImports(0, 50);
-  const { data: suppliersData } = useSuppliers(0, 100);
+  const [offset, setOffset] = useState(0);
+  const { data, isLoading, error, refetch } = useImports(offset, 50);
+  const [supplierOffset, setSupplierOffset] = useState(0);
+  const { data: suppliersData, error: supplierError, refetch: refetchSuppliers } = useSuppliers(supplierOffset, 50);
   const uploadImport = useUploadImport();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [selectedSupplier, setSelectedSupplier] = useState("");
+  const form = useForm<z.infer<typeof uploadSchema>>({ resolver: zodResolver(uploadSchema), defaultValues: { supplier: "", layout: false } });
+  const layoutConfirmed = form.watch("layout");
+  const selectedSupplier = form.watch("supplier");
+  const setSelectedSupplier = (value: string) => form.setValue("supplier", value);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
 
@@ -65,7 +76,8 @@ export default function ImportsPage() {
     maxFiles: 1,
   });
 
-  const handleUpload = () => {
+  const handleUpload = form.handleSubmit(() => {
+    if (!layoutConfirmed) { toast.error("Confirme o layout LEHMOX do PDF."); return; }
     if (!selectedSupplier) {
       toast.error("Selecione um fornecedor.");
       return;
@@ -96,15 +108,16 @@ export default function ImportsPage() {
         },
       }
     );
-  };
+  });
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "COMPLETED":
       case "IMPORTED":
         return <Badge className="bg-green-500">Concluído</Badge>;
-      case "PROCESSING":
       case "UPLOADED":
+        return <Badge variant="outline">Aguardando processamento</Badge>;
+      case "PROCESSING":
         return (
           <Badge className="bg-blue-600 text-white flex items-center gap-1.5 animate-pulse">
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -150,7 +163,7 @@ export default function ImportsPage() {
                   <Loader2 className="mx-auto h-6 w-6 animate-spin text-zinc-500" />
                 </TableCell>
               </TableRow>
-            ) : data?.items.length === 0 ? (
+            ) : error ? (<TableRow><TableCell colSpan={6}><QueryError error={error} retry={refetch} /></TableCell></TableRow>) : data?.items.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                   Nenhuma importação realizada.
@@ -206,6 +219,7 @@ export default function ImportsPage() {
         </Table>
       </div>
 
+      {data && <Pagination offset={offset} total={data.total} onChange={setOffset} />}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
@@ -216,9 +230,10 @@ export default function ImportsPage() {
           </DialogHeader>
           
           <div className="space-y-6 pt-4">
+            <label className="flex gap-2"><input type="checkbox" checked={layoutConfirmed} onChange={e => form.setValue("layout", e.target.checked)} />Confirmo que o PDF utiliza o layout de catálogo LEHMOX suportado.</label>
             <div className="space-y-2">
               <label className="text-sm font-medium">Fornecedor</label>
-              {(!suppliersData?.items || suppliersData.items.length === 0) ? (
+              {supplierError ? <QueryError error={supplierError} retry={refetchSuppliers} /> : (!suppliersData?.items || suppliersData.items.length === 0) ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-800 dark:text-amber-300 space-y-1">
                   <p>Nenhum fornecedor cadastrado na plataforma.</p>
                   <p>
@@ -254,6 +269,7 @@ export default function ImportsPage() {
               )}
             </div>
 
+            {suppliersData && <Pagination offset={supplierOffset} total={suppliersData.total} onChange={setSupplierOffset} />}
             <div className="space-y-2">
               <label className="text-sm font-medium">Arquivo PDF</label>
               {!selectedFile ? (
@@ -314,7 +330,7 @@ export default function ImportsPage() {
               </Button>
               <Button 
                 onClick={handleUpload}
-                disabled={!selectedSupplier || !selectedFile || uploadImport.isPending}
+                disabled={!layoutConfirmed || !selectedSupplier || !selectedFile || uploadImport.isPending}
               >
                 {uploadImport.isPending ? (
                   <>

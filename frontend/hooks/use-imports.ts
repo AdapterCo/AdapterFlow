@@ -19,14 +19,16 @@ export function useImport(id: string) {
     queryKey: ["import", id],
     queryFn: () => apiClient.get<ImportJob>(`/api/v1/imports/${id}`),
     enabled: !!id,
+    refetchInterval: query => ["UPLOADED", "PROCESSING"].includes(query.state.data?.status || "") ? 3000 : false,
   });
 }
 
-export function useImportItems(jobId: string) {
+export function useImportItems(jobId: string, skip = 0, processing = false) {
   return useQuery({
-    queryKey: ["import-items", jobId],
-    queryFn: () => apiClient.get<PaginatedResponse<ImportItem>>(`/api/v1/imports/${jobId}/items?limit=1000`), // Fetching all for review phase
+    queryKey: ["import-items", jobId, skip],
+    queryFn: () => apiClient.get<PaginatedResponse<ImportItem>>(`/api/v1/imports/${jobId}/items?skip=${skip}&limit=50`), // Fetching all for review phase
     enabled: !!jobId,
+    refetchInterval: processing ? 3000 : false,
   });
 }
 
@@ -38,6 +40,7 @@ export function useUploadImport() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("supplier_id", supplierId);
+      formData.append("importer_type", "lehmox");
       
       return apiClient.upload<ImportJob>("/api/v1/imports/upload", formData, onProgress);
     },
@@ -51,9 +54,10 @@ export function useUpdateImportItem() {
   const queryClient = useQueryClient();
   
   return useMutation({
+    mutationKey: ["review-item"],
     mutationFn: ({ itemId, data }: { itemId: string; data: ImportItemUpdate }) => 
       apiClient.patch<ImportItem>(`/api/v1/imports/items/${itemId}`, data),
-    onSuccess: (_, variables) => {
+    onSuccess: () => {
       // Invalidate specific item and its parent job's items list
       queryClient.invalidateQueries({ queryKey: ["import-items"] });
     },
@@ -64,11 +68,14 @@ export function useConfirmImport() {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: (jobId: string) => apiClient.post<{ message: string }>(`/api/v1/imports/${jobId}/confirm`),
+    mutationFn: (jobId: string) => apiClient.post<ImportJob>(`/api/v1/imports/${jobId}/confirm`),
     onSuccess: (_, jobId) => {
       queryClient.invalidateQueries({ queryKey: ["imports"] });
       queryClient.invalidateQueries({ queryKey: ["import", jobId] });
       queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["product"] });
+      queryClient.invalidateQueries({ queryKey: ["product-prices"] });
+      queryClient.invalidateQueries({ queryKey: ["import-items"] });
     },
   });
 }

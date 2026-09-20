@@ -1,13 +1,10 @@
-"""Cliente assíncrono oficial para a API do Mercado Livre Brasil (MLB).
-
-Utiliza httpx para chamadas REST, em total conformidade com a documentação
-oficial de desenvolvedores do Mercado Livre (developers.mercadolivre.com.br).
-"""
-
+"""Mercado Livre endpoints verified against official documentation (see docs)."""
 from datetime import datetime, timedelta, timezone
+import asyncio
 from urllib.parse import urlencode
 import httpx
-from fastapi import HTTPException, status
+import simplejson
+from fastapi import HTTPException
 from app.core.config import settings
 
 AUTH_URL_MLB = "https://auth.mercadolivre.com.br/authorization"
@@ -15,220 +12,104 @@ API_BASE_URL = "https://api.mercadolibre.com"
 
 
 class MercadoLivreClient:
-    def __init__(
-        self,
-        app_id: str | None = None,
-        client_secret: str | None = None,
-        redirect_uri: str | None = None,
-    ) -> None:
+    def __init__(self, app_id=None, client_secret=None, redirect_uri=None):
+        self._http_client = None
         self.app_id = app_id or settings.MERCADOLIVRE_APP_ID
         self.client_secret = client_secret or settings.MERCADOLIVRE_CLIENT_SECRET
         self.redirect_uri = redirect_uri or settings.MERCADOLIVRE_REDIRECT_URI
 
-    def is_configured(self) -> bool:
-        """Verifica se as credenciais de desenvolvedor estão preenchidas no backend."""
+    async def close(self):
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
+
+    def is_configured(self):
         return bool(self.app_id and self.client_secret and self.redirect_uri)
 
-    def get_authorization_url(self, state: str = "adapterflow_oauth") -> str:
-        """Gera a URL de autorização oficial do Mercado Livre Brasil."""
+    def get_authorization_url(self, state: str):
         if not self.is_configured():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Mercado Livre não está configurado no servidor. Configure MERCADOLIVRE_APP_ID e MERCADOLIVRE_CLIENT_SECRET no .env.",
-            )
+            raise HTTPException(503, "Mercado Livre não está configurado no servidor.")
+        return AUTH_URL_MLB + "?" + urlencode({"response_type": "code", "client_id": self.app_id, "redirect_uri": self.redirect_uri, "state": state})
 
-        params = {
-            "response_type": "code",
-            "client_id": self.app_id,
-            "redirect_uri": self.redirect_uri,
-            "state": state,
-        }
-        return f"{AUTH_URL_MLB}?{urlencode(params)}"
+    async def _request(self, method, path, access_token=None, payload=None, form=None, files=None):
+        headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+        options = {}
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
+            options["content"] = simplejson.dumps(payload, use_decimal=True, allow_nan=False).encode()
+        if form is not None:
+            options["data"] = form
+        if files is not None:
+            options["files"] = files
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(timeout=30, limits=httpx.Limits(max_connections=20, max_keepalive_connections=10))
+        for attempt in range(3 if method == "GET" else 1):
+            try:
+                response = await self._http_client.request(method, API_BASE_URL + path, headers=headers, **options)
+            except (httpx.TimeoutException, httpx.NetworkError):
+                if method != "GET" or attempt == 2:
+                    raise
+                await asyncio.sleep(0.5 * (2 ** attempt))
+                continue
+            if method == "GET" and response.status_code in (429, 500, 502, 503, 504) and attempt < 2:
+                await asyncio.sleep(0.5 * (2 ** attempt))
+                continue
+            break
+        if response.status_code >= 400:
+            # Do not forward remote response text: it can contain request credentials.
+            code = 401 if response.status_code in (401, 403) else 422 if response.status_code == 400 else 502
+            raise HTTPException(code, f"Mercado Livre recusou a operação (HTTP {response.status_code}). Revise os dados ou reconecte a conta.")
+        if response.status_code == 204 or not response.content:
+            return {}
+        try:
+            return simplejson.loads(response.content, use_decimal=True)
+        except ValueError:
+            raise HTTPException(502, "Resposta inválida do Mercado Livre.")
 
-    async def exchange_code_for_token(self, code: str) -> dict:
-        """Troca o authorization code pelo access_token e refresh_token."""
+    async def _token(self, fields):
         if not self.is_configured():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Credenciais do Mercado Livre não configuradas no servidor.",
-            )
+            raise HTTPException(503, "Mercado Livre não está configurado no servidor.")
+        data = await self._request("POST", "/oauth/token", form={"client_id": self.app_id, "client_secret": self.client_secret, **fields})
+        if not all(data.get(key) for key in ("access_token", "refresh_token", "expires_in", "user_id")):
+            raise HTTPException(502, "Resposta de autenticação incompleta.")
+        if not isinstance(data["expires_in"], int) or data["expires_in"] <= 0:
+            raise HTTPException(502, "Validade de autenticação inválida.")
+        data["token_expires_at"] = datetime.now(timezone.utc) + timedelta(seconds=data["expires_in"])
+        return data
 
-        payload = {
-            "grant_type": "authorization_code",
-            "client_id": self.app_id,
-            "client_secret": self.client_secret,
-            "code": code,
-            "redirect_uri": self.redirect_uri,
-        }
+    async def exchange_code_for_token(self, code):
+        return await self._token({"grant_type": "authorization_code", "code": code, "redirect_uri": self.redirect_uri})
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            res = await client.post(
-                f"{API_BASE_URL}/oauth/token",
-                data=payload,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
+    async def refresh_access_token(self, refresh_token):
+        return await self._token({"grant_type": "refresh_token", "refresh_token": refresh_token})
 
-            if res.status_code != 200:
-                detail_msg = res.json().get("message", res.text) if res.content else "Erro desconhecido"
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Falha na autenticação com o Mercado Livre: {detail_msg}",
-                )
+    async def get_user_info(self, access_token):
+        return await self._request("GET", "/users/me", access_token)
 
-            data = res.json()
-            # Calcula data de expiração (UTC)
-            expires_in = data.get("expires_in", 21600)
-            data["token_expires_at"] = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-            return data
+    async def predict_category(self, title, access_token):
+        return await self._request("GET", "/sites/MLB/domain_discovery/search?" + urlencode({"limit": 4, "q": title}), access_token)
 
-    async def refresh_access_token(self, refresh_token: str) -> dict:
-        """Renova o access_token utilizando o refresh_token."""
-        if not self.is_configured():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Credenciais do Mercado Livre não configuradas no servidor.",
-            )
+    async def get_category_attributes(self, category_id, access_token):
+        return await self._request("GET", f"/categories/{category_id}/attributes", access_token)
 
-        payload = {
-            "grant_type": "refresh_token",
-            "client_id": self.app_id,
-            "client_secret": self.client_secret,
-            "refresh_token": refresh_token,
-        }
+    async def upload_picture(self, data, filename, access_token):
+        result = await self._request("POST", "/pictures/items/upload", access_token, files={"file": (filename, data)})
+        if not result.get("id"):
+            raise HTTPException(502, "Imagem não confirmada pelo Mercado Livre.")
+        return result["id"]
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            res = await client.post(
-                f"{API_BASE_URL}/oauth/token",
-                data=payload,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
+    async def validate_item(self, item_data, access_token):
+        await self._request("POST", "/items/validate", access_token, payload=item_data)
+        return {"valid": True}
 
-            if res.status_code != 200:
-                detail_msg = res.json().get("message", res.text) if res.content else "Token expirado ou revogado"
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=f"Não foi possível renovar a sessão com o Mercado Livre: {detail_msg}",
-                )
+    async def publish_item(self, item_data, access_token):
+        return await self._request("POST", "/items", access_token, payload=item_data)
 
-            data = res.json()
-            expires_in = data.get("expires_in", 21600)
-            data["token_expires_at"] = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-            return data
+    async def set_description(self, item_id, description, access_token):
+        return await self._request("POST", f"/items/{item_id}/description", access_token, payload={"plain_text": description})
 
-    async def get_user_info(self, access_token: str) -> dict:
-        """Obtém os dados do vendedor autenticado (/users/me)."""
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            res = await client.get(
-                f"{API_BASE_URL}/users/me",
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
+    async def get_item(self, item_id, access_token):
+        return await self._request("GET", f"/items/{item_id}", access_token)
 
-            if res.status_code != 200:
-                raise HTTPException(
-                    status_code=res.status_code,
-                    detail="Falha ao obter dados da conta do Mercado Livre.",
-                )
-
-            return res.json()
-
-    async def predict_category(self, title: str, access_token: str | None = None) -> list[dict]:
-        """Prevê categorias adequadas no site MLB a partir do título do produto."""
-        headers = {}
-        if access_token:
-            headers["Authorization"] = f"Bearer {access_token}"
-
-        params = {"limit": 4, "q": title}
-
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            res = await client.get(
-                f"{API_BASE_URL}/sites/MLB/domain_discovery/search",
-                params=params,
-                headers=headers,
-            )
-
-            if res.status_code == 200:
-                return res.json()
-            return []
-
-    async def get_category_attributes(self, category_id: str) -> list[dict]:
-        """Retorna os atributos obrigatórios e recomendados da categoria."""
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            res = await client.get(
-                f"{API_BASE_URL}/categories/{category_id}/attributes"
-            )
-
-            if res.status_code == 200:
-                return res.json()
-            return []
-
-    async def validate_item(self, item_data: dict, access_token: str) -> dict:
-        """Executa a validação prévia de um anúncio (POST /items/validate)."""
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            res = await client.post(
-                f"{API_BASE_URL}/items/validate",
-                json=item_data,
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
-                },
-            )
-
-            if res.status_code not in (200, 204):
-                error_body = res.json() if res.content else {}
-                detail = error_body.get("message", res.text)
-                causes = error_body.get("cause", [])
-                cause_msgs = [c.get("message", str(c)) for c in causes if isinstance(c, dict)]
-                full_msg = f"{detail}: {', '.join(cause_msgs)}" if cause_msgs else detail
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=f"Validação do anúncio recusada pelo Mercado Livre: {full_msg}",
-                )
-
-            return {"valid": True}
-
-    async def publish_item(self, item_data: dict, access_token: str) -> dict:
-        """Publica o anúncio definitivamente (POST /items)."""
-        # Executa validação prévia obrigatória
-        await self.validate_item(item_data, access_token)
-
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            res = await client.post(
-                f"{API_BASE_URL}/items",
-                json=item_data,
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
-                },
-            )
-
-            if res.status_code not in (200, 201):
-                error_body = res.json() if res.content else {}
-                detail = error_body.get("message", res.text)
-                raise HTTPException(
-                    status_code=res.status_code,
-                    detail=f"Erro ao publicar item no Mercado Livre: {detail}",
-                )
-
-            return res.json()
-
-    async def update_item(self, item_id: str, item_data: dict, access_token: str) -> dict:
-        """Atualiza preço ou estoque de um anúncio existente (PUT /items/{id})."""
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            res = await client.put(
-                f"{API_BASE_URL}/items/{item_id}",
-                json=item_data,
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
-                },
-            )
-
-            if res.status_code != 200:
-                error_body = res.json() if res.content else {}
-                detail = error_body.get("message", res.text)
-                raise HTTPException(
-                    status_code=res.status_code,
-                    detail=f"Erro ao atualizar anúncio no Mercado Livre: {detail}",
-                )
-
-            return res.json()
+    async def update_item(self, item_id, item_data, access_token):
+        return await self._request("PUT", f"/items/{item_id}", access_token, payload=item_data)

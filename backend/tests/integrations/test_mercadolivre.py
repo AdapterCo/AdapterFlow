@@ -11,8 +11,8 @@ def test_client_configuration_check():
     assert not client_unconfigured.is_configured()
 
     with pytest.raises(HTTPException) as exc_info:
-        client_unconfigured.get_authorization_url()
-    assert exc_info.value.status_code == 400
+        client_unconfigured.get_authorization_url(state="test-state")
+    assert exc_info.value.status_code == 503
     assert "não está configurado" in exc_info.value.detail
 
     client_configured = MercadoLivreClient(
@@ -82,7 +82,7 @@ async def test_oauth_exchange_code_mock():
         "refresh_token": "TG-test-refresh",
     }
 
-    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+    with patch("httpx.AsyncClient.request", new_callable=AsyncMock) as mock_post:
         mock_post.return_value = Response(200, json=fake_response)
         result = await client.exchange_code_for_token("test_code_123")
         assert result["access_token"] == "APP_USR-test-token"

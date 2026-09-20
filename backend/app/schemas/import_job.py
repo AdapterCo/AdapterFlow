@@ -1,7 +1,8 @@
-from pydantic import BaseModel, ConfigDict, computed_field
+from app.schemas.decimal_input import DecimalInputModel
+from pydantic import Field, BaseModel, ConfigDict, computed_field
 from uuid import UUID
 from datetime import datetime
-from typing import Optional, List, Any
+from typing import Literal, Optional, List
 from decimal import Decimal
 from app.schemas.supplier import SupplierResponse
 
@@ -16,6 +17,12 @@ class ImportItemResponse(BaseModel):
     review_notes: Optional[str] = None
     error_message: Optional[str] = None
     image_path: Optional[str] = None
+
+    @computed_field
+    @property
+    def image_url(self) -> str | None:
+        from urllib.parse import quote
+        return f"/api/v1/storage/{quote(self.image_path, safe=chr(47))}" if self.image_path else None
     duplicate_of_product_id: Optional[UUID] = None
     user_edits: Optional[dict] = None
     created_at: datetime
@@ -56,32 +63,33 @@ class ImportItemResponse(BaseModel):
     @computed_field
     @property
     def normalized_code(self) -> Optional[str]:
-        return (self.normalized_data or {}).get("normalized_code")
+        return ({**(self.normalized_data or {}), **(self.user_edits or {})}).get("normalized_code")
 
     @computed_field
     @property
     def normalized_name(self) -> Optional[str]:
-        return (self.normalized_data or {}).get("normalized_name")
+        return ({**(self.normalized_data or {}), **(self.user_edits or {})}).get("normalized_name")
 
     @computed_field
     @property
-    def normalized_price(self) -> Optional[Any]:
-        return (self.normalized_data or {}).get("normalized_price")
+    def normalized_price(self) -> str | None:
+        value = ({**(self.normalized_data or {}), **(self.user_edits or {})}).get("normalized_price")
+        return str(value) if value is not None else None
 
     @computed_field
     @property
     def normalized_dimensions(self) -> Optional[str]:
-        return (self.normalized_data or {}).get("normalized_dimensions")
+        return ({**(self.normalized_data or {}), **(self.user_edits or {})}).get("normalized_dimensions")
 
     @computed_field
     @property
     def normalized_pcs_per_box(self) -> Optional[int]:
-        return (self.normalized_data or {}).get("normalized_pcs_per_box")
+        return ({**(self.normalized_data or {}), **(self.user_edits or {})}).get("normalized_pcs_per_box")
 
     @computed_field
     @property
     def normalized_color(self) -> Optional[str]:
-        return (self.normalized_data or {}).get("normalized_color")
+        return ({**(self.normalized_data or {}), **(self.user_edits or {})}).get("normalized_color")
 
     @computed_field
     @property
@@ -91,12 +99,12 @@ class ImportItemResponse(BaseModel):
     @computed_field
     @property
     def warnings(self) -> List[str]:
-        return (self.normalized_data or {}).get("warnings", [])
+        return ({**(self.normalized_data or {}), **(self.user_edits or {})}).get("warnings", [])
 
     @computed_field
     @property
     def is_out_of_stock(self) -> bool:
-        return bool((self.normalized_data or {}).get("is_out_of_stock", False))
+        return bool(({**(self.normalized_data or {}), **(self.user_edits or {})}).get("is_out_of_stock", False))
 
 class ImportItemListResponse(BaseModel):
     items: List[ImportItemResponse]
@@ -144,13 +152,14 @@ class ImportJobListResponse(BaseModel):
     items: List[ImportJobResponse]
     total: int
 
-class ImportItemUpdateRequest(BaseModel):
-    status: Optional[str] = None
-    normalized_code: Optional[str] = None
-    normalized_price: Optional[Any] = None
-    normalized_color: Optional[str] = None
-    user_edits: Optional[dict] = None
-    review_notes: Optional[str] = None
+class ImportItemUpdateRequest(DecimalInputModel):
+    status: Literal["DETECTED", "APPROVED", "REJECTED", "IGNORED"] | None = None
+    normalized_code: str | None = Field(None, min_length=1, max_length=100)
+    normalized_name: str | None = Field(None, min_length=1, max_length=500)
+    normalized_price: Decimal | None = Field(None, ge=0, max_digits=12, decimal_places=4)
+    normalized_color: str | None = Field(None, max_length=100)
+    review_notes: str | None = Field(None, max_length=2000)
+    model_config = ConfigDict(extra="forbid")
 
 class ImportConfirmRequest(BaseModel):
     approved_item_ids: Optional[List[UUID]] = None

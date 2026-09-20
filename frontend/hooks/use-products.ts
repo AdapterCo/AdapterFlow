@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
-import { Product, ProductWithDetails, PaginatedResponse, Status } from "@/types";
+import { ProductWithDetails, PaginatedResponse, Status } from "@/types";
 
 export function useProducts(skip = 0, limit = 100, search?: string, status?: Status | "") {
   return useQuery({
@@ -10,7 +10,7 @@ export function useProducts(skip = 0, limit = 100, search?: string, status?: Sta
       if (search) params.append("search", search);
       if (status) params.append("status", status);
       
-      return apiClient.get<PaginatedResponse<Product>>(`/api/v1/products?${params.toString()}`);
+      return apiClient.get<PaginatedResponse<ProductWithDetails>>(`/api/v1/products?${params.toString()}`);
     },
   });
 }

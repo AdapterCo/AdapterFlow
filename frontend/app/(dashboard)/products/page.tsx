@@ -1,5 +1,7 @@
 "use client";
 
+import Image from "next/image";
+import { Pagination } from "@/components/data-state";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useProducts } from "@/hooks/use-products";
@@ -29,11 +31,12 @@ import { Search, Loader2, Image as ImageIcon, AlertCircle, RefreshCw } from "luc
 
 export default function ProductsPage() {
   const router = useRouter();
+  const [offset, setOffset] = useState(0);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Status | "">("");
-  
+
   const debouncedSearch = useDebounce(search, 350);
-  const { data, isLoading, isError, error, refetch } = useProducts(0, 50, debouncedSearch, statusFilter);
+  const { data, isLoading, isError, error, refetch } = useProducts(offset, 50, debouncedSearch, statusFilter);
 
   const getStatusBadge = (status: Status) => {
     switch (status) {
@@ -61,10 +64,10 @@ export default function ProductsPage() {
             placeholder="Buscar por nome ou SKU..."
             className="pl-9"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setOffset(0); }}
           />
         </div>
-        <Select value={statusFilter} onValueChange={(val: Status | "all") => setStatusFilter(val === "all" ? "" : val as Status)}>
+        <Select value={statusFilter} onValueChange={(val: Status | "all") => { setStatusFilter(val === "all" ? "" : val as Status); setOffset(0); }}>
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Status: Todos" />
           </SelectTrigger>
@@ -119,16 +122,16 @@ export default function ProductsPage() {
               </TableRow>
             ) : (
               data?.items.map((product) => (
-                <TableRow 
+                <TableRow
                   key={product.id}
                   className="cursor-pointer hover:bg-zinc-50"
                   onClick={() => router.push(`/products/${product.id}`)}
                 >
                   <TableCell>
                     <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-zinc-50 overflow-hidden">
-                      {product.primary_image ? (
-                        <img 
-                          src={product.primary_image.url} 
+                      {product.images?.[0] ? (
+                        <Image unoptimized width={40} height={40}
+                          src={product.images?.[0].url}
                           alt={product.name}
                           className="h-full w-full object-cover"
                         />
@@ -142,8 +145,8 @@ export default function ProductsPage() {
                   </TableCell>
                   <TableCell>{product.sku}</TableCell>
                   <TableCell>
-                    {product.supplier_data && product.supplier_data.length > 0 
-                      ? product.supplier_data[0].supplier?.name || "-" 
+                    {product.supplier_data && product.supplier_data.length > 0
+                      ? product.supplier_data[0].supplier?.name || "-"
                       : "-"}
                   </TableCell>
                   <TableCell>
@@ -158,6 +161,7 @@ export default function ProductsPage() {
           </TableBody>
         </Table>
       </div>
+      {data && <Pagination offset={offset} total={data.total} onChange={setOffset} />}
     </div>
   );
 }

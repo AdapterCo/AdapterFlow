@@ -12,9 +12,11 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup
-    yield
-    # shutdown
+    try:
+        yield
+    finally:
+        from app.api.v1.marketplaces import service
+        await service.client.close()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -23,10 +25,12 @@ app = FastAPI(
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.exception("Exceção não tratada capturada em %s %s: %s", request.method, request.url.path, str(exc))
+    from uuid import uuid4
+    incident = str(uuid4())
+    logger.error("Falha interna incidente=%s tipo=%s", incident, type(exc).__name__)
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Erro interno do servidor: {str(exc)}"}
+        content={"detail": "Erro interno do servidor.", "incident_id": incident}
     )
 
 @app.middleware("http")
@@ -56,3 +60,30 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/v1/ready", dependencies=[])
+async def readiness():
+    from sqlalchemy import text
+    from app.core.database import async_session_maker
+    from pathlib import Path
+    try:
+        async with async_session_maker() as db:
+            await db.execute(text("SELECT 1"))
+        if not Path(settings.STORAGE_PATH).is_dir():
+            return JSONResponse(status_code=503, content={"status": "storage_unavailable"})
+        return {"status": "ready"}
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "not_ready"})
+
+
+from sqlalchemy.exc import IntegrityError
+from pydantic import ValidationError
+
+@app.exception_handler(IntegrityError)
+async def integrity_error(request: Request, exc: IntegrityError):
+    return JSONResponse(status_code=409, content={"detail": "Conflito ou dado incompatível com as regras do cadastro."})
+
+@app.exception_handler(ValidationError)
+async def invalid_business_data(request: Request, exc: ValidationError):
+    return JSONResponse(status_code=422, content={"detail": "Dados de cadastro inválidos. Verifique campos obrigatórios, limites e regras relacionadas."})

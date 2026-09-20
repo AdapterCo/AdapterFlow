@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.pricing.engine import calculate_selling_price, RoundingRule
+from app.pricing.engine import calculate_selling_price
 from app.repositories.pricing_repository import PricingRepository
 from app.repositories.product_repository import ProductRepository
 from app.schemas.pricing import (
@@ -40,7 +40,7 @@ class PricingService:
             return PriceSimulationResponse(**result)
         except ValueError as exc:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=422,
                 detail=str(exc),
             )
 
@@ -91,6 +91,7 @@ class PricingService:
         session: AsyncSession,
         product_id: UUID,
         profile_id: UUID,
+        supplier_data_id: UUID,
         manual_override_price: Decimal | None = None,
     ) -> ProductChannelPriceResponse:
         product = await self.product_repo.get_with_details(session, product_id)
@@ -103,7 +104,7 @@ class PricingService:
         # Determinar custo base a partir dos dados do fornecedor
         cost_basis = None
         for sup in product.supplier_data:
-            if sup.is_active and sup.current_cost is not None:
+            if sup.id == supplier_data_id and sup.is_active and sup.supplier.is_active:
                 cost_basis = sup.current_cost
                 break
 
@@ -119,6 +120,12 @@ class PricingService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Perfil de precificação {profile_id} não encontrado.",
             )
+
+        if not profile.is_active:
+            raise HTTPException(409, "Perfil inativo.")
+        required = ("marketplace_commission_percent", "fixed_fee", "tax_percent", "operating_cost_percent", "fixed_cost", "target_margin_percent")
+        if any(getattr(profile, key) is None for key in required):
+            raise HTTPException(422, "Complete as taxas e custos reais do perfil antes de calcular.")
 
         try:
             calc = calculate_selling_price(
@@ -137,15 +144,19 @@ class PricingService:
             )
         except ValueError as exc:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=422,
                 detail=str(exc),
             )
 
+        if calc["suggested_price"] >= Decimal("10000000000"):
+            raise HTTPException(422, "Preço excede a precisão suportada pelo cadastro.")
         saved = await self.repo.upsert_product_price(
             session=session,
             product_id=product_id,
             profile_id=profile_id,
             calculated_data={
+                "is_stale": False,
+                "supplier_data_id": supplier_data_id,
                 "calculated_price": calc["suggested_price"],
                 "cost_basis": calc["cost_basis"],
                 "channel_commission": calc["marketplace_commission"],
@@ -162,6 +173,8 @@ class PricingService:
         )
 
         return ProductChannelPriceResponse(
+            is_stale=saved.is_stale,
+            supplier_data_id=saved.supplier_data_id,
             id=saved.id,
             product_id=saved.product_id,
             pricing_profile_id=saved.pricing_profile_id,
@@ -191,6 +204,8 @@ class PricingService:
         for r in records:
             output.append(
                 ProductChannelPriceResponse(
+                    is_stale=r.is_stale,
+                    supplier_data_id=r.supplier_data_id,
                     id=r.id,
                     product_id=r.product_id,
                     pricing_profile_id=r.pricing_profile_id,

@@ -24,6 +24,9 @@ export function useCreateSupplier() {
     mutationFn: (data: SupplierCreate) => apiClient.post<Supplier>("/api/v1/suppliers", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["suppliers"] });
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["product"] });
+      queryClient.invalidateQueries({ queryKey: ["product-prices"] });
     },
   });
 }
@@ -36,6 +39,9 @@ export function useUpdateSupplier() {
       apiClient.patch<Supplier>(`/api/v1/suppliers/${id}`, data),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["suppliers"] });
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["product"] });
+      queryClient.invalidateQueries({ queryKey: ["product-prices"] });
       queryClient.invalidateQueries({ queryKey: ["supplier", variables.id] });
     },
   });

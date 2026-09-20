@@ -1,11 +1,13 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class MarketplaceAccountResponse(BaseModel):
+    verified_at: datetime | None = None
+    connection_error: str | None = None
     id: UUID
     marketplace: str
     account_name: str
@@ -35,7 +37,7 @@ class MarketplacesOverviewResponse(BaseModel):
 
 class OAuthCallbackRequest(BaseModel):
     code: str
-    state: Optional[str] = None
+    state: str = Field(..., min_length=20, max_length=200)
 
 
 class CategoryPredictionItem(BaseModel):
@@ -48,12 +50,13 @@ class CategoryPredictionItem(BaseModel):
 class PublishProductRequest(BaseModel):
     product_id: UUID
     account_id: UUID
-    pricing_profile_id: Optional[UUID] = None
-    title: Optional[str] = None
-    category_id: str
-    listing_type_id: str = "gold_special"
-    available_quantity: int = Field(default=1, ge=1)
-    condition: str = "new"
+    pricing_profile_id: UUID
+    request_id: UUID
+    title: str = Field(..., min_length=1, max_length=60)
+    category_id: str = Field(..., pattern=r"^MLB[0-9]+$")
+    listing_type_id: Literal["gold_special", "gold_pro"]
+    available_quantity: int = Field(..., ge=1)
+    condition: Literal["new", "used", "not_specified"]
     attributes: Optional[list[dict[str, Any]]] = None
 
 

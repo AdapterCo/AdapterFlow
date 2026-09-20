@@ -71,3 +71,6 @@ coverage.xml
 *.log
 *.bak
 *.tmp
+
+.npm-cache/
+.ruff_cache/

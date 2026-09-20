@@ -1,295 +1,51 @@
 "use client";
-
-import React, { useState, useEffect } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { useState } from "react";
+import { useForm, useWatch } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  useMarketplacesOverview,
-  usePredictCategory,
-  usePublishToMercadoLivre,
-} from "@/hooks/use-marketplaces";
+import { QueryError } from "@/components/data-state";
+import { useMarketplacesOverview, usePredictCategory, usePublishToMercadoLivre, useCategoryAttributes } from "@/hooks/use-marketplaces";
+import { useDebounce } from "@/hooks/use-debounce";
 import { ProductWithDetails, ProductChannelPrice } from "@/types";
+import { errorMessage, formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
-import {
-  UploadCloud,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  ExternalLink,
-} from "lucide-react";
-import { useRouter } from "next/navigation";
-
-interface PublishDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  product: ProductWithDetails;
-  selectedChannelPrice?: ProductChannelPrice | null;
-}
-
-export function PublishDialog({
-  open,
-  onOpenChange,
-  product,
-  selectedChannelPrice,
-}: PublishDialogProps) {
-  const router = useRouter();
-  const { data: overview } = useMarketplacesOverview();
-  const publishMutation = usePublishToMercadoLivre();
-
-  const mlAccounts =
-    overview?.accounts.filter((a) => a.marketplace === "MERCADO_LIVRE") || [];
-
-  const [selectedAccountId, setSelectedAccountId] = useState<string>("");
-  const [title, setTitle] = useState<string>("");
-  const [categoryId, setCategoryId] = useState<string>("");
-  const [listingTypeId, setListingTypeId] = useState<string>("gold_special");
-  const [availableQuantity, setAvailableQuantity] = useState<number>(1);
-  const [condition, setCondition] = useState<string>("new");
-
-  const { data: categoryPredictions, isLoading: predictingCategory } =
-    usePredictCategory(title);
-
-  useEffect(() => {
-    if (open) {
-      setTitle(product.name.slice(0, 60));
-      if (mlAccounts.length > 0 && !selectedAccountId) {
-        setSelectedAccountId(mlAccounts[0].id);
-      }
-    }
-  }, [open, product, mlAccounts, selectedAccountId]);
-
-  // Se houver predição de categoria e nenhuma categoria selecionada, seleciona a primeira
-  useEffect(() => {
-    if (categoryPredictions && categoryPredictions.length > 0 && !categoryId) {
-      setCategoryId(categoryPredictions[0].category_id);
-    }
-  }, [categoryPredictions, categoryId]);
-
-  const handlePublish = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!selectedAccountId) {
-      toast.error("Selecione uma conta do Mercado Livre conectada.");
-      return;
-    }
-    if (!title.trim()) {
-      toast.error("O título do anúncio é obrigatório.");
-      return;
-    }
-    if (!categoryId.trim()) {
-      toast.error("A categoria do Mercado Livre é obrigatória.");
-      return;
-    }
-
+import Link from "next/link";
+const schema = z.object({ account_id: z.string().uuid(), title: z.string().trim().min(1).max(60), category_id: z.string().regex(/^MLB[0-9]+$/), listing_type_id: z.enum(["gold_special", "gold_pro"]), available_quantity: z.string().regex(/^[1-9][0-9]*$/), condition: z.enum(["new", "used", "not_specified"]), attributes: z.record(z.string(), z.string()) });
+type Values = z.infer<typeof schema>;
+type Props = { open: boolean; onOpenChange: (open: boolean) => void; product: ProductWithDetails; selectedChannelPrice?: ProductChannelPrice | null };
+export function PublishDialog(props: Props) { return props.open ? <Editor {...props} /> : null; }
+function Editor({ open, onOpenChange, product, selectedChannelPrice: price }: Props) {
+  const overview = useMarketplacesOverview(); const publish = usePublishToMercadoLivre(); const [requestId] = useState(() => crypto.randomUUID());
+  const { register, control, setValue, handleSubmit, formState: { errors } } = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { account_id: "", title: product.name.slice(0, 60), category_id: "", available_quantity: "", attributes: {} } });
+  const title = useWatch({ control, name: "title" }); const account = useWatch({ control, name: "account_id" }); const category = useWatch({ control, name: "category_id" });
+  const debouncedTitle = useDebounce(title || "", 500); const predictions = usePredictCategory(debouncedTitle, account || ""); const attributes = useCategoryAttributes(category || "", account || "");
+  const submit = handleSubmit(async values => {
+    if (!price || price.is_stale) { toast.error("Recalcule o preço antes de publicar."); return; }
     try {
-      const res = await publishMutation.mutateAsync({
-        product_id: product.id,
-        account_id: selectedAccountId,
-        pricing_profile_id: selectedChannelPrice?.pricing_profile_id || null,
-        title: title.trim(),
-        category_id: categoryId.trim(),
-        listing_type_id: listingTypeId,
-        available_quantity: Number(availableQuantity) || 1,
-        condition,
-      });
-
-      toast.success("Anúncio publicado com sucesso no Mercado Livre!");
+      const result = await publish.mutateAsync({ ...values, product_id: product.id, pricing_profile_id: price.pricing_profile_id, request_id: requestId, available_quantity: Number(values.available_quantity), attributes: Object.entries(values.attributes).filter(([, value]) => value.trim()).map(([id, value_name]) => ({ id, value_name: value_name.trim() })) });
+      toast.success(`Resposta do Mercado Livre registrada: ${result.status}.`);
+      if (result.error_message) toast.warning(result.error_message);
       onOpenChange(false);
-      router.push("/publications");
-    } catch (err: any) {
-      toast.error(err.message || "Erro ao publicar no Mercado Livre.");
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <UploadCloud className="h-5 w-5 text-primary" />
-            Publicar Produto no Mercado Livre
-          </DialogTitle>
-        </DialogHeader>
-
-        {mlAccounts.length === 0 ? (
-          <div className="py-6 text-center space-y-3">
-            <AlertCircle className="h-10 w-10 text-amber-500 mx-auto" />
-            <div className="space-y-1">
-              <h3 className="font-semibold text-foreground">
-                Nenhuma conta do Mercado Livre conectada
-              </h3>
-              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                Para publicar produtos, é necessário autorizar sua conta de vendedor via OAuth oficial.
-              </p>
-            </div>
-            <Button
-              size="sm"
-              onClick={() => {
-                onOpenChange(false);
-                router.push("/marketplaces");
-              }}
-            >
-              Ir para Conexão de Marketplaces
-            </Button>
-          </div>
-        ) : (
-          <form onSubmit={handlePublish} className="space-y-4 py-2">
-            <div className="space-y-1">
-              <Label htmlFor="ml_account">Conta Vendedora do Mercado Livre *</Label>
-              <select
-                id="ml_account"
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                value={selectedAccountId}
-                onChange={(e) => setSelectedAccountId(e.target.value)}
-                required
-              >
-                {mlAccounts.map((acc) => (
-                  <option key={acc.id} value={acc.id}>
-                    {acc.account_name} (Seller ID: {acc.seller_id})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <div className="flex justify-between items-center">
-                <Label htmlFor="ml_title">Título do Anúncio (Máx. 60 caracteres) *</Label>
-                <span className={`text-xs ${title.length > 60 ? "text-rose-500 font-bold" : "text-muted-foreground"}`}>
-                  {title.length}/60
-                </span>
-              </div>
-              <Input
-                id="ml_title"
-                maxLength={60}
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Ex: Fone De Ouvido Bluetooth Lehmox Com Microfone"
-                required
-              />
-            </div>
-
-            {/* Sugestões de Categoria */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <Label htmlFor="ml_category">Categoria do Mercado Livre *</Label>
-                {predictingCategory && (
-                  <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                    <Loader2 className="h-3 w-3 animate-spin" /> Identificando categoria...
-                  </span>
-                )}
-              </div>
-              <Input
-                id="ml_category"
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-                placeholder="Ex: MLB1055"
-                required
-              />
-
-              {categoryPredictions && categoryPredictions.length > 0 && (
-                <div className="space-y-1 pt-1">
-                  <span className="text-[11px] text-muted-foreground block">
-                    Categorias sugeridas pela inteligência do Mercado Livre:
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {categoryPredictions.map((cp) => (
-                      <button
-                        key={cp.category_id}
-                        type="button"
-                        onClick={() => setCategoryId(cp.category_id)}
-                        className={`text-xs px-2.5 py-1 rounded-md border text-left transition-colors ${
-                          categoryId === cp.category_id
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-muted/40 hover:bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {cp.category_name} ({cp.category_id})
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <Label htmlFor="ml_type">Tipo de Anúncio</Label>
-                <select
-                  id="ml_type"
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  value={listingTypeId}
-                  onChange={(e) => setListingTypeId(e.target.value)}
-                >
-                  <option value="gold_special">Clássico (gold_special)</option>
-                  <option value="gold_pro">Premium (gold_pro - parcelamento)</option>
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="ml_stock">Estoque Inicial (unidades)</Label>
-                <Input
-                  id="ml_stock"
-                  type="number"
-                  min={1}
-                  value={availableQuantity}
-                  onChange={(e) => setAvailableQuantity(Number(e.target.value))}
-                  required
-                />
-              </div>
-            </div>
-
-            {/* Resumo de Preço da Fase 2 */}
-            <div className="p-3.5 rounded-lg border bg-muted/30 flex justify-between items-center text-sm">
-              <div>
-                <span className="text-xs text-muted-foreground block">Preço de Venda a Publicar</span>
-                <span className="font-bold text-lg text-foreground">
-                  R${" "}
-                  {selectedChannelPrice
-                    ? parseFloat(selectedChannelPrice.calculated_price).toFixed(2)
-                    : "0.00"}
-                </span>
-              </div>
-              <div className="text-right text-xs text-muted-foreground">
-                <span>Canal: Mercado Livre</span>
-                {selectedChannelPrice && (
-                  <span className="block text-emerald-600 font-medium">
-                    Margem: {parseFloat(selectedChannelPrice.net_margin_percent).toFixed(1)}%
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <DialogFooter className="pt-4 border-t">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                disabled={publishMutation.isPending}
-              >
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={publishMutation.isPending}>
-                {publishMutation.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Validando e Publicando...
-                  </>
-                ) : (
-                  "Publicar no Mercado Livre"
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
+    } catch (e) { toast.error(errorMessage(e)); }
+  });
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Revisar anúncio Mercado Livre</DialogTitle><DialogDescription>Confirme estoque, condição e classificação com dados reais. Preço: {formatCurrency(price?.calculated_price)}</DialogDescription></DialogHeader>
+    {overview.isError ? <QueryError error={overview.error} retry={() => overview.refetch()} /> : <form onSubmit={submit} className="space-y-3">
+      <label className="block">Conta verificada<select className="block w-full border p-2" {...register("account_id")}><option value="">Selecione</option>{overview.data?.accounts.filter(a => a.marketplace === "MERCADO_LIVRE" && a.is_active && a.verified_at && !a.connection_error).map(a => <option key={a.id} value={a.id}>{a.account_name}</option>)}</select></label>
+      <label className="block">Título<Input maxLength={60} {...register("title")} /></label>
+      <label className="block">Categoria confirmada<Input {...register("category_id")} /></label>
+      {predictions.isError && <p role="alert">Não foi possível consultar sugestões: {errorMessage(predictions.error)}</p>}
+      {predictions.data?.map(p => <Button key={p.category_id} type="button" variant="outline" onClick={() => { setValue("category_id", p.category_id); setValue("attributes", {}); }}>Selecionar {p.category_name}</Button>)}
+      <label className="block">Tipo de anúncio (deve corresponder ao perfil)<select className="block w-full border p-2" {...register("listing_type_id")}><option value="">Selecione</option><option value="gold_special">Clássico</option><option value="gold_pro">Premium</option></select></label>
+      <label className="block">Estoque disponível confirmado<Input inputMode="numeric" {...register("available_quantity")} /></label>
+      <label className="block">Condição real<select className="block w-full border p-2" {...register("condition")}><option value="">Selecione</option><option value="new">Novo</option><option value="used">Usado</option><option value="not_specified">Não especificada</option></select></label>
+      {attributes.isError && <QueryError error={attributes.error} retry={() => attributes.refetch()} />}
+      {attributes.data?.filter(a => !a.tags?.read_only).map(a => <label className="block" key={a.id}>{a.name}{a.tags?.required ? " *" : ""}<Input {...register(`attributes.${a.id}`)} list={`attribute-${a.id}`} /><datalist id={`attribute-${a.id}`}>{a.values?.map(v => <option key={v.id} value={v.name} />)}</datalist></label>)}
+      {!!Object.keys(errors).length && <p role="alert">Preencha conta, categoria, tipo, quantidade e condição.</p>}
+      {publish.isError && <p role="alert">{errorMessage(publish.error)} <Link className="underline" href="/publications">Consultar tentativas</Link></p>}
+      <Button type="submit" disabled={publish.isPending || publish.isSuccess || attributes.isFetching || attributes.isError || !attributes.data || !price || price.is_stale}>{publish.isPending ? "Validando e publicando…" : "Publicar dados revisados"}</Button>
+    </form>}
+  </DialogContent></Dialog>;
 }

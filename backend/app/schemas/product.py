@@ -1,8 +1,10 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 from uuid import UUID
 from datetime import datetime
 from typing import Optional, List
 from decimal import Decimal
+from typing import Literal
+from app.schemas.supplier import SupplierResponse
 
 class SupplierProductPriceResponse(BaseModel):
     id: UUID
@@ -15,6 +17,7 @@ class SupplierProductPriceResponse(BaseModel):
 
 class ProductSupplierDataResponse(BaseModel):
     id: UUID
+    supplier: SupplierResponse | None = None
     supplier_id: UUID
     supplier_code: str
     supplier_name: Optional[str] = None
@@ -28,6 +31,17 @@ class ProductSupplierDataResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class ProductImageResponse(BaseModel):
+    @computed_field
+    @property
+    def url(self) -> str:
+        from urllib.parse import quote
+        return f"/api/v1/storage/{quote(self.storage_path, safe='/')}"
+
+    @computed_field
+    @property
+    def is_primary(self) -> bool:
+        return self.position == 0
+
     id: UUID
     storage_path: str
     original_filename: Optional[str] = None
@@ -47,12 +61,13 @@ class ProductResponse(BaseModel):
     model: Optional[str] = None
     ean: Optional[str] = None
     gtin: Optional[str] = None
+    dimensions: Optional[str] = None
     color: Optional[str] = None
     weight: Optional[Decimal] = None
     height: Optional[Decimal] = None
     width: Optional[Decimal] = None
     length: Optional[Decimal] = None
-    status: str
+    status: Literal["ACTIVE", "INACTIVE", "DRAFT"]
     created_at: datetime
     updated_at: Optional[datetime] = None
     model_config = ConfigDict(from_attributes=True)
@@ -62,5 +77,24 @@ class ProductWithDetailsResponse(ProductResponse):
     images: List[ProductImageResponse] = []
 
 class ProductListResponse(BaseModel):
-    items: List[ProductResponse]
+    items: List[ProductWithDetailsResponse]
     total: int
+
+class ProductUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=500)
+    sku: str | None = Field(None, max_length=100)
+    description: str | None = None
+    brand: str | None = Field(None, max_length=255)
+    model: str | None = Field(None, max_length=255)
+    ean: str | None = Field(None, pattern=r"^\d{8,14}$")
+    gtin: str | None = Field(None, pattern=r"^\d{8,14}$")
+    color: str | None = Field(None, max_length=100)
+    dimensions: str | None = None
+    status: Literal["ACTIVE", "INACTIVE", "DRAFT"] | None = None
+    model_config = ConfigDict(extra="forbid")
+
+
+class SupplierLinkUpdate(BaseModel):
+    is_active: bool
+    activation_reason: str = Field(..., min_length=1, max_length=2000)
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)

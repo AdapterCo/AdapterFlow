@@ -82,16 +82,19 @@ export function useCalculateProductPrice() {
     mutationFn: ({
       productId,
       pricingProfileId,
+      supplierDataId,
       manualOverridePrice,
     }: {
       productId: string;
       pricingProfileId: string;
+      supplierDataId: string;
       manualOverridePrice?: string | null;
     }) =>
       apiClient.post<ProductChannelPrice>(
         `/api/v1/pricing/products/${productId}/calculate`,
         {
           pricing_profile_id: pricingProfileId,
+          supplier_data_id: supplierDataId,
           manual_override_price: manualOverridePrice || null,
         }
       ),

@@ -25,6 +25,7 @@ export function useDisconnectAccount() {
       apiClient.delete(`/api/v1/marketplaces/accounts/${accountId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["marketplaces-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["marketplace-listings"] });
     },
   });
 }
@@ -33,27 +34,28 @@ export function useMarketplaceCallback() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ code, state }: { code: string; state?: string }) =>
+    mutationFn: ({ code, state }: { code: string; state: string }) =>
       apiClient.post<MarketplaceAccount>(
         "/api/v1/marketplaces/mercadolivre/oauth/callback",
         { code, state }
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["marketplaces-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["marketplace-listings"] });
     },
   });
 }
 
-export function usePredictCategory(title: string) {
+export function usePredictCategory(title: string, accountId: string) {
   return useQuery({
-    queryKey: ["category-prediction", title],
+    queryKey: ["category-prediction", title, accountId],
     queryFn: () =>
       apiClient.get<CategoryPredictionItem[]>(
-        `/api/v1/marketplaces/mercadolivre/categories/predict?q=${encodeURIComponent(
+        `/api/v1/marketplaces/mercadolivre/categories/predict?account_id=${accountId}&q=${encodeURIComponent(
           title
         )}`
       ),
-    enabled: !!title && title.length >= 2,
+    enabled: !!accountId && title.length >= 2,
   });
 }
 
@@ -69,6 +71,7 @@ export function usePublishToMercadoLivre() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["marketplace-listings"] });
       queryClient.invalidateQueries({ queryKey: ["marketplaces-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["marketplace-listings"] });
     },
   });
 }
@@ -89,4 +92,9 @@ export function useMarketplaceListings(
     queryKey: ["marketplace-listings", productId, accountId, status, skip, limit],
     queryFn: () => apiClient.get<MarketplaceListingListResponse>(url),
   });
+}
+
+export interface CategoryAttribute { id: string; name: string; tags?: { required?: boolean; read_only?: boolean }; values?: { id: string; name: string }[] }
+export function useCategoryAttributes(categoryId: string, accountId: string) {
+  return useQuery({ queryKey: ["category-attributes", categoryId, accountId], queryFn: () => apiClient.get<CategoryAttribute[]>(`/api/v1/marketplaces/mercadolivre/categories/${categoryId}/attributes?account_id=${accountId}`), enabled: /^MLB[0-9]+$/.test(categoryId) && !!accountId });
 }

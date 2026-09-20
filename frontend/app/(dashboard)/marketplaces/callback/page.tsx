@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, Suspense } from "react";
+import React, { useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMarketplaceCallback } from "@/hooks/use-marketplaces";
 import { Loader2, CheckCircle2, AlertTriangle, ArrowLeft } from "lucide-react";
@@ -16,7 +16,7 @@ function CallbackContent() {
   const errorDescription = searchParams.get("error_description");
 
   const callbackMutation = useMarketplaceCallback();
-  const [hasStarted, setHasStarted] = useState(false);
+  const hasStarted = useRef(false);
 
   useEffect(() => {
     if (errorParam) {
@@ -26,8 +26,8 @@ function CallbackContent() {
       return;
     }
 
-    if (code && !hasStarted) {
-      setHasStarted(true);
+    if (code && state && !hasStarted.current) {
+      hasStarted.current = true;
       callbackMutation.mutate(
         { code, state },
         {
@@ -37,19 +37,19 @@ function CallbackContent() {
             );
             router.push("/marketplaces");
           },
-          onError: (err: any) => {
+          onError: (err: unknown) => {
             toast.error(
-              err.message || "Falha ao concluir autenticação com o Mercado Livre."
+              (err instanceof Error ? err.message : "") || "Falha ao concluir autenticação com o Mercado Livre."
             );
           },
         }
       );
     }
-  }, [code, state, errorParam, errorDescription, hasStarted]);
+  }, [code, state, errorParam, errorDescription, callbackMutation, router]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[50vh] text-center max-w-md mx-auto p-6 space-y-4">
-      {errorParam ? (
+      {errorParam || !code || !state ? (
         <>
           <div className="h-14 w-14 rounded-full bg-rose-100 dark:bg-rose-950/40 flex items-center justify-center text-rose-600">
             <AlertTriangle className="h-8 w-8" />
@@ -63,7 +63,7 @@ function CallbackContent() {
             Voltar para Marketplaces
           </Button>
         </>
-      ) : callbackMutation.isPending || !hasStarted ? (
+      ) : callbackMutation.isPending || (Boolean(code) && Boolean(state) && !hasStarted.current) ? (
         <>
           <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
           <h2 className="text-xl font-bold text-foreground">Conectando ao Mercado Livre</h2>
@@ -88,7 +88,7 @@ function CallbackContent() {
           </div>
           <h2 className="text-xl font-bold text-foreground">Falha na Autenticação</h2>
           <p className="text-sm text-muted-foreground">
-            {(callbackMutation.error as any)?.message ||
+            {callbackMutation.error?.message ||
               "Não foi possível concluir a autenticação OAuth."}
           </p>
           <Button variant="outline" onClick={() => router.push("/marketplaces")}>

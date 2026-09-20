@@ -1,6 +1,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
 from app.models.supplier import Supplier
+from app.models.product import ProductSupplierData
+from app.models.pricing import ProductChannelPrice
 from app.schemas.supplier import SupplierCreate, SupplierUpdate
 from uuid import UUID
 
@@ -8,7 +10,7 @@ class SupplierRepository:
     async def create(self, session: AsyncSession, data: SupplierCreate) -> Supplier:
         supplier = Supplier(**data.model_dump())
         session.add(supplier)
-        await session.commit()
+        await session.flush()
         await session.refresh(supplier)
         return supplier
 
@@ -33,11 +35,12 @@ class SupplierRepository:
         if not update_data:
             return await self.get_by_id(session, id)
         
+        if "is_active" in update_data:
+            source_ids = select(ProductSupplierData.id).where(ProductSupplierData.supplier_id == id)
+            await session.execute(update(ProductChannelPrice).where(ProductChannelPrice.supplier_data_id.in_(source_ids)).values(is_stale=True))
         await session.execute(update(Supplier).where(Supplier.id == id).values(**update_data))
-        await session.commit()
+        await session.flush()
         return await self.get_by_id(session, id)
 
     async def deactivate(self, session: AsyncSession, id: UUID) -> Supplier | None:
-        await session.execute(update(Supplier).where(Supplier.id == id).values(is_active=False))
-        await session.commit()
-        return await self.get_by_id(session, id)
+        return await self.update(session, id, SupplierUpdate(is_active=False))

@@ -9,7 +9,7 @@ class ImportRepository:
     async def create_job(self, session: AsyncSession, data: dict) -> ImportJob:
         job = ImportJob(**data)
         session.add(job)
-        await session.commit()
+        await session.flush()
         await session.refresh(job)
         return job
 
@@ -36,20 +36,20 @@ class ImportRepository:
     async def update_job(self, session: AsyncSession, id: UUID, data: dict) -> ImportJob | None:
         if data:
             await session.execute(update(ImportJob).where(ImportJob.id == id).values(**data))
-            await session.commit()
+            await session.flush()
         return await self.get_job(session, id)
 
     async def create_item(self, session: AsyncSession, data: dict) -> ImportItem:
         item = ImportItem(**data)
         session.add(item)
-        await session.commit()
+        await session.flush()
         await session.refresh(item)
         return item
 
     async def create_items_bulk(self, session: AsyncSession, items: List[dict]) -> List[ImportItem]:
         instances = [ImportItem(**item) for item in items]
         session.add_all(instances)
-        await session.commit()
+        await session.flush()
         return instances
 
     async def get_items_by_job(self, session: AsyncSession, job_id: UUID) -> List[ImportItem]:
@@ -63,5 +63,5 @@ class ImportRepository:
     async def update_item(self, session: AsyncSession, id: UUID, data: dict) -> ImportItem | None:
         if data:
             await session.execute(update(ImportItem).where(ImportItem.id == id).values(**data))
-            await session.commit()
+            await session.flush()
         return await self.get_item(session, id)

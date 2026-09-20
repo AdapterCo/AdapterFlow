@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import Query, APIRouter, HTTPException
 from uuid import UUID
 from app.schemas.supplier import SupplierCreate, SupplierUpdate, SupplierResponse, SupplierList
 from app.services.supplier_service import SupplierService
@@ -14,7 +14,7 @@ async def create_supplier(data: SupplierCreate, db: DBSession):
 
 @router.get("", response_model=SupplierList)
 @router.get("/", response_model=SupplierList, include_in_schema=False)
-async def list_suppliers(db: DBSession, skip: int = 0, limit: int = 100):
+async def list_suppliers(db: DBSession, skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100)):
     items = await service.list_all(db, skip, limit)
     total = await service.count(db)
     return {"items": items, "total": total}

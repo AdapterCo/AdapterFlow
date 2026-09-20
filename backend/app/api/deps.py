@@ -8,5 +8,5 @@ from app.core.config import settings
 def get_storage() -> StorageService:
     return StorageService(settings.STORAGE_PATH)
 
-DBSession = Annotated[AsyncSession, Depends(get_db)]
+DBSession = Annotated[AsyncSession, Depends(get_db, scope="function")]
 Storage = Annotated[StorageService, Depends(get_storage)]

@@ -77,6 +77,7 @@ async def calculate_product_price(
         session=db,
         product_id=product_id,
         profile_id=request.pricing_profile_id,
+        supplier_data_id=request.supplier_data_id,
         manual_override_price=request.manual_override_price,
     )
 

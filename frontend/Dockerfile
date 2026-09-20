@@ -10,6 +10,8 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+ARG INTERNAL_BACKEND_URL=http://backend:8000
+ENV INTERNAL_BACKEND_URL=$INTERNAL_BACKEND_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 

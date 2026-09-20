@@ -4,7 +4,7 @@ Todas as operações usam estritamente Decimal para evitar erros de ponto flutua
 NUNCA utilizar float.
 """
 
-from decimal import Decimal, ROUND_HALF_UP, ROUND_CEILING, ROUND_FLOOR
+from decimal import Decimal, ROUND_HALF_UP, ROUND_CEILING
 from enum import Enum
 from typing import TypedDict
 
@@ -47,13 +47,16 @@ class PricingEngineResult(TypedDict):
     breakdown: DREBreakdown
 
 
-def to_decimal(value: int | float | str | Decimal | None, default: str = "0.00") -> Decimal:
+def to_decimal(value: int | str | Decimal | None, default: str = "0.00") -> Decimal:
     """Converte com segurança qualquer valor para Decimal."""
     if value is None:
         return Decimal(default)
-    if isinstance(value, Decimal):
-        return value
-    return Decimal(str(value))
+    if isinstance(value, float):
+        raise ValueError("Valores monetários devem ser Decimal ou texto decimal.")
+    result = value if isinstance(value, Decimal) else Decimal(str(value))
+    if not result.is_finite():
+        raise ValueError("O valor deve ser finito.")
+    return result
 
 
 def round_cents(value: Decimal) -> Decimal:
@@ -72,13 +75,11 @@ def apply_rounding_rule(raw_price: Decimal, rule: RoundingRule | str) -> Decimal
     if isinstance(rule, str):
         try:
             rule = RoundingRule(rule)
-        except ValueError:
-            rule = RoundingRule.ENDS_90
-
-    raw_price = round_cents(raw_price)
+        except ValueError as exc:
+            raise ValueError("Regra de arredondamento inválida.") from exc
 
     if rule == RoundingRule.EXACT:
-        return raw_price
+        return round_cents(raw_price)
 
     integer_part = Decimal(int(raw_price))
     cents = raw_price - integer_part
@@ -180,18 +181,18 @@ def generate_dre(
 
 
 def calculate_selling_price(
-    cost_basis: Decimal | float | str,
-    marketplace_commission_percent: Decimal | float | str = "0.0",
-    fixed_fee: Decimal | float | str = "0.0",
-    fixed_fee_threshold: Decimal | float | str | None = None,
-    tax_percent: Decimal | float | str = "0.0",
-    operating_cost_percent: Decimal | float | str = "0.0",
-    fixed_cost: Decimal | float | str = "0.0",
-    target_margin_percent: Decimal | float | str = "15.0",
-    free_shipping_threshold: Decimal | float | str | None = None,
-    free_shipping_cost: Decimal | float | str | None = None,
-    rounding_rule: RoundingRule | str = RoundingRule.ENDS_90,
-    manual_override_price: Decimal | float | str | None = None,
+    cost_basis: Decimal | str,
+    marketplace_commission_percent: Decimal | str = "0.0",
+    fixed_fee: Decimal | str = "0.0",
+    fixed_fee_threshold: Decimal | str | None = None,
+    tax_percent: Decimal | str = "0.0",
+    operating_cost_percent: Decimal | str = "0.0",
+    fixed_cost: Decimal | str = "0.0",
+    target_margin_percent: Decimal | str = "0.0",
+    free_shipping_threshold: Decimal | str | None = None,
+    free_shipping_cost: Decimal | str | None = None,
+    rounding_rule: RoundingRule | str = RoundingRule.EXACT,
+    manual_override_price: Decimal | str | None = None,
 ) -> PricingEngineResult:
     """
     Calcula o preço de venda e a DRE completa com suporte a:
@@ -210,6 +211,17 @@ def calculate_selling_price(
     target_margin = to_decimal(target_margin_percent)
     shipping_thresh = to_decimal(free_shipping_threshold) if free_shipping_threshold is not None else None
     shipping_val = to_decimal(free_shipping_cost) if free_shipping_cost is not None else Decimal("0.00")
+
+    for amount in (comm_pct, tax_pct, op_pct, fixed_fee_val, fixed_cost_val, shipping_val):
+        if amount < 0:
+            raise ValueError("Taxas e custos não podem ser negativos.")
+    if any(v is not None and v < 0 for v in (fixed_fee_thresh, shipping_thresh)):
+        raise ValueError("Limiares não podem ser negativos.")
+    if (free_shipping_threshold is None) != (free_shipping_cost is None):
+        raise ValueError("Informe conjuntamente limiar e custo real do frete.")
+    if target_margin < -100 or target_margin >= 100:
+        raise ValueError("A margem deve ser maior ou igual a -100 e menor que 100%.")
+    RoundingRule(rounding_rule)
 
     if cost_basis < Decimal("0.00"):
         raise ValueError("O custo base do produto não pode ser negativo.")
@@ -272,38 +284,31 @@ def calculate_selling_price(
 
     divisor = (Decimal("100.0") - percent_sum) / Decimal("100.0")
 
-    def solve_price(include_fixed_fee: bool, include_shipping: bool) -> Decimal:
-        fixed_sum = cost_basis + fixed_cost_val
-        if include_fixed_fee:
-            fixed_sum += fixed_fee_val
-        if include_shipping:
-            fixed_sum += shipping_val
-
-        raw = fixed_sum / divisor
-        return apply_rounding_rule(raw, rounding_rule)
-
-    # Resolução de faixas considerando limiar de frete grátis e taxa fixa
-    # Cenário 1: Abaixo dos limiares (com taxa fixa se houver, sem frete)
-    candidate_low = solve_price(include_fixed_fee=True, include_shipping=False)
-
-    # Cenário 2: Acima dos limiares (sem taxa fixa se houver threshold, com frete se houver)
-    candidate_high = solve_price(include_fixed_fee=False, include_shipping=True)
-
-    # Decidir qual faixa é coerente com as regras do marketplace
-    # Se candidato_low for >= shipping_thresh (quando definido), ele ultrapassa o limiar, então usa candidate_high
-    if shipping_thresh is not None and candidate_low >= shipping_thresh:
-        chosen_price = candidate_high
-        applied_fee = Decimal("0.00") if fixed_fee_thresh is not None and chosen_price >= fixed_fee_thresh else (fixed_fee_val if chosen_price < (fixed_fee_thresh or Decimal("0")) else Decimal("0.00"))
-        applied_shipping = shipping_val if chosen_price >= shipping_thresh else Decimal("0.00")
-    elif fixed_fee_thresh is not None and candidate_low >= fixed_fee_thresh:
-        # Se ultrapassou o limiar de taxa fixa, recalcular sem ela
-        chosen_price = solve_price(include_fixed_fee=False, include_shipping=(shipping_thresh is not None and candidate_low >= shipping_thresh))
-        applied_fee = Decimal("0.00")
-        applied_shipping = shipping_val if shipping_thresh is not None and chosen_price >= shipping_thresh else Decimal("0.00")
-    else:
-        chosen_price = candidate_low
-        applied_fee = fixed_fee_val
-        applied_shipping = Decimal("0.00")
+    # Enumerate every interval induced by the two thresholds. A candidate must
+    # satisfy its own interval and its cent-rounded DRE, not a previous candidate.
+    boundaries = sorted({Decimal("0"), *[v for v in (fixed_fee_thresh, shipping_thresh) if v is not None]})
+    candidates = []
+    for index, lower in enumerate(boundaries):
+        upper = boundaries[index + 1] if index + 1 < len(boundaries) else None
+        fee = fixed_fee_val if fixed_fee_thresh is None or lower < fixed_fee_thresh else Decimal("0")
+        shipping = shipping_val if shipping_thresh is not None and lower >= shipping_thresh else Decimal("0")
+        raw = (cost_basis + fixed_cost_val + fee + shipping) / divisor
+        candidate = apply_rounding_rule(max(raw, lower, Decimal("0.01")), rounding_rule)
+        if candidate < lower:
+            candidate = apply_rounding_rule(lower.quantize(Decimal("0.01"), rounding=ROUND_CEILING), rounding_rule)
+        for _ in range(32):
+            if upper is not None and candidate >= upper:
+                break
+            profit = generate_dre(candidate, cost_basis, comm_pct, tax_pct, op_pct, fixed_cost_val, fee, shipping)[5]
+            shortfall = candidate * target_margin / Decimal("100") - profit
+            if shortfall <= 0:
+                candidates.append((candidate, fee, shipping))
+                break
+            increase = max(Decimal("0.01"), (shortfall / divisor).quantize(Decimal("0.01"), rounding=ROUND_CEILING))
+            candidate = apply_rounding_rule(candidate + increase, rounding_rule)
+    if not candidates:
+        raise ValueError("Não existe preço válido nas faixas e margem informadas.")
+    chosen_price, applied_fee, applied_shipping = min(candidates, key=lambda entry: entry[0])
 
     (
         comm,

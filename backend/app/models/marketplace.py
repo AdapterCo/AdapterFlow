@@ -1,3 +1,4 @@
+from decimal import Decimal
 import uuid
 from datetime import datetime
 from sqlalchemy import (
@@ -33,9 +34,12 @@ class MarketplaceAccount(Base):
     seller_id: Mapped[str] = mapped_column(String(100), nullable=False)
     site_id: Mapped[str] = mapped_column(String(20), nullable=False, default="MLB")
 
-    # Tokens protegidos
-    access_token: Mapped[str] = mapped_column(Text, nullable=False)
-    refresh_token: Mapped[str] = mapped_column(Text, nullable=False)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    connection_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Tokens encrypted by the service before persistence.
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     token_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -74,11 +78,12 @@ class MarketplaceListing(Base):
     marketplace: Mapped[str] = mapped_column(String(50), nullable=False, default="MERCADO_LIVRE")
     external_listing_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
+    request_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), unique=True, nullable=True)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
-    price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
-    available_quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    available_quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     category_id: Mapped[str] = mapped_column(String(100), nullable=False)
-    listing_type_id: Mapped[str] = mapped_column(String(50), nullable=False, default="gold_special")
+    listing_type_id: Mapped[str] = mapped_column(String(50), nullable=False)
 
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="DRAFT")
     permalink: Mapped[str | None] = mapped_column(String(1000), nullable=True)
@@ -97,3 +102,13 @@ class MarketplaceListing(Base):
     # Relationships
     product = relationship("Product", back_populates="marketplace_listings")
     account = relationship("MarketplaceAccount", back_populates="listings")
+
+
+class OAuthAttempt(Base):
+    __tablename__ = "oauth_attempts"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    state_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    browser_hash: Mapped[str] = mapped_column(String(64))
+    owner: Mapped[str] = mapped_column(String(255))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

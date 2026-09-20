@@ -1,5 +1,5 @@
 from uuid import UUID
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, delete, update, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -8,12 +8,22 @@ from app.schemas.pricing import PricingProfileCreate, PricingProfileUpdate
 
 
 class PricingRepository:
+    async def _reserve_default(self, session, channel, is_default, profile_id=None):
+        if not is_default:
+            return
+        await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:channel))"), {"channel": channel})
+        query = update(PricingProfile).where(PricingProfile.channel == channel, PricingProfile.is_default.is_(True))
+        if profile_id:
+            query = query.where(PricingProfile.id != profile_id)
+        await session.execute(query.values(is_default=False))
+
     async def create_profile(
         self, session: AsyncSession, data: PricingProfileCreate
     ) -> PricingProfile:
+        await self._reserve_default(session, data.channel, data.is_default)
         profile = PricingProfile(**data.model_dump())
         session.add(profile)
-        await session.commit()
+        await session.flush()
         await session.refresh(profile)
         return profile
 
@@ -42,10 +52,15 @@ class PricingRepository:
             return None
 
         update_dict = data.model_dump(exclude_unset=True)
+        merged = {key: getattr(profile, key) for key in PricingProfileCreate.model_fields}
+        merged.update(update_dict)
+        validated = PricingProfileCreate.model_validate(merged)
+        await self._reserve_default(session, validated.channel, validated.is_default, profile_id)
+        await session.execute(update(ProductChannelPrice).where(ProductChannelPrice.pricing_profile_id == profile_id).values(is_stale=True))
         for key, value in update_dict.items():
             setattr(profile, key, value)
 
-        await session.commit()
+        await session.flush()
         await session.refresh(profile)
         return profile
 
@@ -53,8 +68,10 @@ class PricingRepository:
         profile = await self.get_profile_by_id(session, profile_id)
         if not profile:
             return False
-        await session.delete(profile)
-        await session.commit()
+        profile.is_active = False
+        profile.is_default = False
+        await session.execute(update(ProductChannelPrice).where(ProductChannelPrice.pricing_profile_id == profile_id).values(is_stale=True))
+        await session.flush()
         return True
 
     async def get_default_profile(
@@ -73,6 +90,7 @@ class PricingRepository:
         profile_id: UUID,
         calculated_data: dict,
     ) -> ProductChannelPrice:
+        await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:identity))"), {"identity": f"price:{product_id}:{profile_id}"})
         stmt = (
             select(ProductChannelPrice)
             .where(
@@ -95,7 +113,7 @@ class PricingRepository:
             )
             session.add(record)
 
-        await session.commit()
+        await session.flush()
         await session.refresh(record)
         return record
 
@@ -133,5 +151,5 @@ class PricingRepository:
             ProductChannelPrice.pricing_profile_id == profile_id,
         )
         res = await session.execute(stmt)
-        await session.commit()
+        await session.flush()
         return res.rowcount > 0

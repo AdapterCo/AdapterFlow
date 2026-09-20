@@ -1,6 +1,6 @@
 from datetime import datetime
 from uuid import UUID
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -50,7 +50,7 @@ class MarketplaceRepository:
             )
             session.add(account)
 
-        await session.commit()
+        await session.flush()
         await session.refresh(account)
         return account
 
@@ -80,8 +80,12 @@ class MarketplaceRepository:
         account = await self.get_account_by_id(session, account_id)
         if not account:
             return False
-        await session.delete(account)
-        await session.commit()
+        account.is_active = False
+        account.access_token = None
+        account.refresh_token = None
+        account.verified_at = None
+        account.connection_error = "Conta desconectada localmente."
+        await session.flush()
         return True
 
     async def create_or_update_listing(
@@ -106,7 +110,7 @@ class MarketplaceRepository:
             listing = MarketplaceListing(**listing_data)
             session.add(listing)
 
-        await session.commit()
+        await session.flush()
         await session.refresh(listing)
         return listing
 

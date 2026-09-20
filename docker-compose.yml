@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-adapterflow}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-adapterflow_dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}
       POSTGRES_DB: ${POSTGRES_DB:-adapterflow}
     expose:
       - "5432"
@@ -24,10 +24,22 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    environment:
-      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-adapterflow}:${POSTGRES_PASSWORD:-adapterflow_dev}@db:5432/${POSTGRES_DB:-adapterflow}"
+    environment: &backend-environment
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?Defina ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Defina ADMIN_PASSWORD}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:?Defina TOKEN_ENCRYPTION_KEY}
+      MERCADOLIVRE_APP_ID: ${MERCADOLIVRE_APP_ID:-}
+      MERCADOLIVRE_CLIENT_SECRET: ${MERCADOLIVRE_CLIENT_SECRET:-}
+      MERCADOLIVRE_REDIRECT_URI: ${MERCADOLIVRE_REDIRECT_URI:-}
+      OCR_ENABLED: ${OCR_ENABLED:-false}
+      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-adapterflow}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}@db:5432/${POSTGRES_DB:-adapterflow}"
       STORAGE_PATH: /app/storage
-      BACKEND_CORS_ORIGINS: '["https://${DOMAIN:-flow.adapterco.com.br}","http://${DOMAIN:-flow.adapterco.com.br}","http://localhost:3099","http://localhost:3000","http://localhost:${FRONTEND_PORT:-3099}"]'
+      BACKEND_CORS_ORIGINS: '["https://${DOMAIN:?Defina DOMAIN}"]'
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     expose:
       - "8000"
     volumes:
@@ -40,27 +52,48 @@ services:
     networks:
       - adapterflow
 
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    environment: *backend-environment
+    command: python -m app.worker
+    mem_limit: 1g
+    cpus: 1
+    volumes:
+      - backend_storage:/app/storage
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - adapterflow
+
   adapterflow-web:
     container_name: adapterflow-web
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        INTERNAL_BACKEND_URL: http://backend:8000
     restart: unless-stopped
     environment:
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?Defina ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Defina ADMIN_PASSWORD}
+      APP_ORIGIN: https://${DOMAIN:?Defina DOMAIN}
       INTERNAL_BACKEND_URL: "http://backend:8000"
       HOSTNAME: "0.0.0.0"
       PORT: "3099"
     expose:
       - "3099"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik9"
-      - "traefik.http.routers.adapterflow-web-http.rule=Host(`flow.adapterco.com.br`)"
+      - "traefik.http.routers.adapterflow-web-http.rule=Host(`${DOMAIN:?Defina DOMAIN}`)"
       - "traefik.http.routers.adapterflow-web-http.entrypoints=http"
       - "traefik.http.routers.adapterflow-web-http.middlewares=https-redirect"
-      - "traefik.http.routers.adapterflow-web.rule=Host(`flow.adapterco.com.br`)"
+      - "traefik.http.routers.adapterflow-web.rule=Host(`${DOMAIN:?Defina DOMAIN}`)"
       - "traefik.http.routers.adapterflow-web.entrypoints=https"
       - "traefik.http.routers.adapterflow-web.tls=true"
       - "traefik.http.routers.adapterflow-web.tls.certresolver=letsencrypt"

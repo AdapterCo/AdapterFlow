@@ -9,7 +9,7 @@ class ProductRepository:
     async def create(self, session: AsyncSession, data: dict) -> Product:
         product = Product(**data)
         session.add(product)
-        await session.commit()
+        await session.flush()
         await session.refresh(product)
         return product
 
@@ -22,7 +22,7 @@ class ProductRepository:
         return result.scalars().first()
 
     async def list_all(self, session: AsyncSession, skip: int = 0, limit: int = 100, search: Optional[str] = None, status: Optional[str] = None) -> List[Product]:
-        query = select(Product)
+        query = select(Product).options(selectinload(Product.images), selectinload(Product.supplier_data).selectinload(ProductSupplierData.prices))
         if search:
             query = query.where(Product.name.ilike(f"%{search}%") | Product.sku.ilike(f"%{search}%"))
         if status:
@@ -43,7 +43,7 @@ class ProductRepository:
     async def update(self, session: AsyncSession, id: UUID, data: dict) -> Product | None:
         if data:
             await session.execute(update(Product).where(Product.id == id).values(**data))
-            await session.commit()
+            await session.flush()
         return await self.get_by_id(session, id)
 
     async def get_with_details(self, session: AsyncSession, id: UUID) -> Product | None:
@@ -61,3 +61,14 @@ class ProductRepository:
         )
         result = await session.execute(query)
         return result.scalars().first()
+
+    async def update_supplier_link(self, session, product_id, supplier_data_id, is_active, reason):
+        link = await session.scalar(select(ProductSupplierData).where(ProductSupplierData.id == supplier_data_id, ProductSupplierData.product_id == product_id).with_for_update())
+        if not link:
+            return None
+        link.is_active = is_active
+        link.activation_reason = reason
+        from app.models.pricing import ProductChannelPrice
+        await session.execute(update(ProductChannelPrice).where(ProductChannelPrice.supplier_data_id == supplier_data_id).values(is_stale=True))
+        await session.flush()
+        return link
