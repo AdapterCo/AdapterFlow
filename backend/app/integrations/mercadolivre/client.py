@@ -92,12 +92,13 @@ class MercadoLivreClient:
     def _error_message(path, status, reason):
         text = reason.lower()
         if path.startswith("/oauth/token"):
-            if "invalid_client" in text or "client_secret" in text or "client_id" in text:
-                return "Mercado Livre não reconheceu o App ID ou o Client Secret do servidor. Confira MERCADOLIVRE_APP_ID e MERCADOLIVRE_CLIENT_SECRET (mesma aplicação)."
-            if "redirect" in text:
-                return "O redirect_uri enviado difere do cadastrado no painel do Mercado Livre. Confira MERCADOLIVRE_REDIRECT_URI."
-            if "invalid_grant" in text or "code" in text or "expired" in text or "used" in text:
-                return "O código de autorização expirou, já foi usado ou não pertence a esta aplicação. Volte para Marketplaces e clique em Autorizar conta; não recarregue esta página."
+            # Meanings follow the official "Referencia de códigos de erro" (autenticacao-e-autorizacao).
+            if "invalid_client" in text:
+                return "Mercado Livre informou invalid_client: o App ID e/ou o Client Secret do servidor são inválidos. Confira MERCADOLIVRE_APP_ID e MERCADOLIVRE_CLIENT_SECRET."
+            if "invalid_grant" in text:
+                return ("Mercado Livre informou invalid_grant: o código de autorização pode ter expirado, ter sido usado ou pertencer a outro aplicativo; "
+                        "o redirect_uri pode diferir do configurado no aplicativo; ou o vendedor pode ter pendência de dados ou documentos. "
+                        "Volte para Marketplaces e clique em Autorizar conta.")
         suffix = f" [{reason}]" if reason else ""
         return f"Mercado Livre recusou a operação (HTTP {status}). Revise os dados ou reconecte a conta.{suffix}"
 
