@@ -59,7 +59,7 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
 
   const isProcessing = ["UPLOADED", "PROCESSING"].includes(job.data.status);
   const isImported = job.data.status === "IMPORTED";
-  const readOnly = job.data.status !== "REVIEW_REQUIRED" || busy || confirm.isPending || approveAll.isPending;
+  const readOnly = isProcessing || busy || confirm.isPending || approveAll.isPending;
   const totalPages = job.data.total_pages;
   const processedPages = job.data.processed_pages ?? 0;
 
@@ -78,7 +78,7 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
           )}
         </div>
 
-        {job.data.status === "REVIEW_REQUIRED" && (
+        {!isProcessing && (
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
@@ -188,11 +188,13 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
       {isImported && (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/50 dark:text-emerald-300">
           <p className="font-medium">Importação concluída!</p>
-          <p>Os produtos aprovados já foram cadastrados no sistema e estão disponíveis na aba de Produtos.</p>
+          <p>
+            {job.data.total_imported || 0} produtos cadastrados no sistema. Caso existam itens ignorados ou pendentes que você deseje cadastrar, basta clicar em &quot;Aprovar&quot; no item e confirmar novamente.
+          </p>
         </div>
       )}
 
-      {job.data.status === "REVIEW_REQUIRED" && (
+      {!isProcessing && (
         <div className="flex items-center justify-between bg-muted/40 p-3 rounded-lg border text-sm text-muted-foreground">
           <p>
             Revise os dados antes de cadastrar. Corrija os itens incompletos ou marque como Ignorar aqueles que não devem entrar no cadastro.
@@ -222,7 +224,7 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
         </div>
       )}
 
-      {!items.data.items.length && job.data.status === "REVIEW_REQUIRED" && (
+      {!items.data.items.length && !isProcessing && (
         <div className="text-center py-12 border rounded-lg bg-card">
           <p className="text-muted-foreground">Nenhum produto identificado neste lote. Consulte o conteúdo preservado das páginas acima.</p>
         </div>
@@ -237,7 +239,7 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pt-2">
         <Pagination offset={offset} total={items.data.total} onChange={setOffset} />
-        {job.data.status === "REVIEW_REQUIRED" && (
+        {!isProcessing && (
           <Button
             className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
             disabled={readOnly || pendingEdits > 0 || update.isPending || !items.data.total}

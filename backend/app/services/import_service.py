@@ -230,13 +230,17 @@ class ImportService:
             raise HTTPException(404, "Item não encontrado nesta importação.")
         job = await session.scalar(select(ImportJob).where(ImportJob.id == item.import_id).with_for_update())
         await session.refresh(item)
-        if job.status != "REVIEW_REQUIRED" or item.status == "IMPORTED":
+        if item.status == "IMPORTED":
+            raise HTTPException(409, "Item já importado não pode ser alterado.")
+        if job.status not in {"REVIEW_REQUIRED", "IMPORTED"}:
             raise HTTPException(409, "Esta importação não está disponível para revisão.")
         values = data.model_dump(exclude_unset=True, mode="json")
         if "status" in values:
             if values["status"] is None:
                 raise HTTPException(422, "Status não pode ser nulo.")
             item.status = values.pop("status")
+            if item.status == "APPROVED" and job.status == "IMPORTED":
+                job.status = "REVIEW_REQUIRED"
         if "review_notes" in values:
             item.review_notes = values.pop("review_notes")
         item.user_edits = {**(item.user_edits or {}), **values}
@@ -249,14 +253,14 @@ class ImportService:
 
     async def approve_all_items(self, session: AsyncSession, job_id: UUID):
         job = await session.scalar(select(ImportJob).where(ImportJob.id == job_id).with_for_update())
-        if not job or job.status != "REVIEW_REQUIRED":
+        if not job or job.status not in {"REVIEW_REQUIRED", "IMPORTED"}:
             raise HTTPException(409, "Importação não está disponível para revisão.")
         items = await self.repo.get_items_by_job(session, job_id)
         count = 0
         skipped = 0
         for item in items:
             unavailable = bool(item.normalized_data and item.normalized_data.get("is_out_of_stock"))
-            if item.status == "DETECTED" and not unavailable:
+            if item.status in {"DETECTED", "IGNORED"} and not unavailable:
                 try:
                     self.product_svc.validate_import_item(item)
                 except HTTPException as exc:
@@ -266,6 +270,8 @@ class ImportService:
                 item.status = "APPROVED"
                 item.error_message = None
                 count += 1
+        if count > 0 and job.status == "IMPORTED":
+            job.status = "REVIEW_REQUIRED"
         await session.commit()
         return {"approved_count": count, "skipped_count": skipped}
 
@@ -273,9 +279,7 @@ class ImportService:
         job = await session.scalar(select(ImportJob).where(ImportJob.id == job_id).with_for_update())
         if not job:
             return None
-        if job.status == "IMPORTED":
-            return job  # Idempotent confirmation.
-        if job.status != "REVIEW_REQUIRED":
+        if job.status not in {"REVIEW_REQUIRED", "IMPORTED"}:
             raise HTTPException(409, "Aguarde a extração antes de confirmar.")
         supplier = await session.scalar(select(Supplier).where(Supplier.id == job.supplier_id).with_for_update())
         if not supplier or not supplier.is_active:
@@ -295,11 +299,10 @@ class ImportService:
                 raise HTTPException(409, "Item já importado não pode ser rejeitado.")
             by_id[item_id].status = "REJECTED"
 
-        if any(item.status in {"DETECTED", "ERROR"} for item in items):
-            raise HTTPException(409, "Há itens pendentes. Revise, rejeite ou ignore esses itens antes de confirmar.")
-
         approved_items = [item for item in items if item.status == "APPROVED"]
         if not approved_items:
+            if job.status == "IMPORTED":
+                return job  # Idempotent confirmation if already imported and no new approved items.
             raise HTTPException(409, "Nenhum item aprovado para cadastrar. Aprove os produtos que deseja importar antes de confirmar.")
 
         for item in approved_items:
@@ -310,7 +313,8 @@ class ImportService:
 
         job.total_imported = sum(item.status == "IMPORTED" for item in items)
         job.total_errors = 0
-        job.status = "IMPORTED"
+        has_pending = any(item.status in {"DETECTED", "IGNORED"} for item in items)
+        job.status = "REVIEW_REQUIRED" if has_pending else "IMPORTED"
         job.completed_at = datetime.now(timezone.utc)
         await session.flush()
         return await self.repo.get_job(session, job_id)

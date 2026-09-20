@@ -122,11 +122,21 @@ class MercadoLivreClient:
     async def get_user_info(self, access_token):
         return await self._request("GET", "/users/me", access_token)
 
-    async def predict_category(self, title, access_token):
-        return await self._request("GET", "/sites/MLB/domain_discovery/search?" + urlencode({"limit": 4, "q": title}), access_token)
+    async def predict_category(self, title, access_token=None):
+        try:
+            return await self._request("GET", "/sites/MLB/domain_discovery/search?" + urlencode({"limit": 4, "q": title}))
+        except HTTPException:
+            if access_token:
+                return await self._request("GET", "/sites/MLB/domain_discovery/search?" + urlencode({"limit": 4, "q": title}), access_token)
+            raise
 
-    async def get_category_attributes(self, category_id, access_token):
-        return await self._request("GET", f"/categories/{category_id}/attributes", access_token)
+    async def get_category_attributes(self, category_id, access_token=None):
+        try:
+            return await self._request("GET", f"/categories/{category_id}/attributes")
+        except HTTPException:
+            if access_token:
+                return await self._request("GET", f"/categories/{category_id}/attributes", access_token)
+            raise
 
     async def upload_picture(self, data, filename, access_token):
         result = await self._request("POST", "/pictures/items/upload", access_token, files={"file": (filename, data)})

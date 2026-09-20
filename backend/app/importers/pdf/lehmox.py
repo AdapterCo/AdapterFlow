@@ -511,6 +511,19 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
             return True
         return False
 
+    @staticmethod
+    def _is_card_background_template(img: dict, cell_bbox: tuple | None) -> bool:
+        """Check if an image spans almost the entire cell (card template frame)."""
+        if not cell_bbox or not img.get("bbox"):
+            return False
+        cell_w = cell_bbox[2] - cell_bbox[0]
+        cell_h = cell_bbox[3] - cell_bbox[1]
+        if cell_w <= 0 or cell_h <= 0:
+            return False
+        img_w = img["bbox"][2] - img["bbox"][0]
+        img_h = img["bbox"][3] - img["bbox"][1]
+        return (img_w / cell_w > 0.70) and (img_h / cell_h > 0.75)
+
     def _parse_card_fields(self, card: dict, anchor: dict) -> None:
         """Parse the collected blocks in a card into structured fields."""
         description_lines: list[str] = []
@@ -611,8 +624,14 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
         image_data = None
         image_ext = None
         if card.get("images"):
-            card["images"].sort(key=lambda img: img.get("width", 0) * img.get("height", 0), reverse=True)
-            primary_img = card["images"][0]
+            cell_bbox = card.get("cell_bbox")
+            product_photos = [
+                img for img in card["images"]
+                if not self._is_card_background_template(img, cell_bbox)
+            ]
+            chosen_pool = product_photos if product_photos else card["images"]
+            chosen_pool.sort(key=lambda img: img.get("width", 0) * img.get("height", 0), reverse=True)
+            primary_img = chosen_pool[0]
             image_data = primary_img.get("data")
             image_ext = primary_img.get("ext", "png")
         else:
