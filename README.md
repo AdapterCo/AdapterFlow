@@ -12,7 +12,7 @@ Requisitos: Docker Compose, domínio HTTPS e Traefik configurado na rede externa
 2. Gere a chave localmente com `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Guarde-a separadamente: perdê-la impede recuperar tokens cifrados.
 3. Configure os três campos `MERCADOLIVRE_*` com dados reais da aplicação. A URI deve corresponder exatamente à cadastrada e terminar em `/marketplaces/callback`.
 4. Faça backup consistente antes de atualizar uma instalação existente, conforme [operação](docs/operacao.md).
-5. Execute `docker compose config --quiet` e `docker compose up -d --build`. O backend aplica Alembic antes de atender; o worker espera readiness. Acesse o domínio HTTPS e autentique-se no diálogo do navegador.
+5. Execute `docker compose config --quiet` e `docker compose up -d --build`. O serviço `adapterflow-backend` aplica Alembic antes de atender; o worker espera readiness. Acesse o domínio HTTPS e autentique-se no diálogo do navegador. Para atualizar uma instalação que ainda usa o serviço `backend`, siga a [migração do endereço interno](docs/operacao.md#atualização-do-endereço-interno-da-api), incluindo a remoção do container antigo e o rebuild do frontend.
 
 HTTP Basic protege um único operador, com HTTPS obrigatório em produção; não é RBAC multiusuário. API/frontend exigem as mesmas credenciais no servidor. Nenhuma publicação ou conexão externa ocorre na instalação.
 

@@ -19,10 +19,11 @@ services:
     networks:
       - adapterflow
 
-  backend:
+  adapterflow-backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    container_name: adapterflow-backend
     restart: unless-stopped
     environment: &backend-environment
       ADMIN_USERNAME: ${ADMIN_USERNAME:?Defina ADMIN_USERNAME}
@@ -66,7 +67,7 @@ services:
     volumes:
       - backend_storage:/app/storage
     depends_on:
-      backend:
+      adapterflow-backend:
         condition: service_healthy
     networks:
       - adapterflow
@@ -77,19 +78,19 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        INTERNAL_BACKEND_URL: http://backend:8000
+        INTERNAL_BACKEND_URL: http://adapterflow-backend:8000
     restart: unless-stopped
     environment:
       ADMIN_USERNAME: ${ADMIN_USERNAME:?Defina ADMIN_USERNAME}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Defina ADMIN_PASSWORD}
       APP_ORIGIN: https://${DOMAIN:?Defina DOMAIN}
-      INTERNAL_BACKEND_URL: "http://backend:8000"
+      INTERNAL_BACKEND_URL: "http://adapterflow-backend:8000"
       HOSTNAME: "0.0.0.0"
       PORT: "3099"
     expose:
       - "3099"
     depends_on:
-      backend:
+      adapterflow-backend:
         condition: service_healthy
     labels:
       - "traefik.enable=true"

@@ -16,9 +16,9 @@ Retenção e destino dependem da política real da operação. Preserve banco, s
 
 Procedimento em manutenção, no shell Linux do host Docker:
 
-1. Interrompa operações e execute `docker compose stop adapterflow-web worker backend`; mantenha PostgreSQL ativo.
+1. Interrompa operações e execute `docker compose stop adapterflow-web worker adapterflow-backend`; mantenha PostgreSQL ativo.
 2. Execute `docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > database.dump`.
-3. Execute `docker compose run --rm --no-deps -T --entrypoint tar backend -C /app/storage -cf - . > storage.tar`.
+3. Execute `docker compose run --rm --no-deps -T --entrypoint tar adapterflow-backend -C /app/storage -cf - . > storage.tar`.
 4. Registre versão do código, revisão Alembic e checksums SHA-256; transfira as cópias para o destino aprovado e religue os serviços.
 
 Restaure em ambiente isolado: banco vazio com `pg_restore`, volume separado e chave correspondente. Confira revisão, contagens, imagens/PDFs e revisão de importação. Nunca ensaie restauração sobre produção. A migration não oferece downgrade destrutivo: rollback exige backup consistente e código compatível. O procedimento não foi executado nesta estação.
@@ -38,14 +38,48 @@ não está definido; nessa URL textual, credenciais devem estar codificadas para
 No `.env` do Compose, coloque valores que contenham `$` entre aspas simples para
 preservá-los literalmente.
 
-Após atualizar o código, execute `docker compose up -d --build backend worker adapterflow-web`.
+Após atualizar o código, execute `docker compose up -d --build adapterflow-backend worker adapterflow-web`.
 Se a falha de resolução persistir, teste o DNS da rede interna sem mostrar credenciais:
 
 ```bash
-docker compose run --rm --no-deps backend python -c "import socket; socket.getaddrinfo('db', 5432); print('DNS db OK')"
+docker compose run --rm --no-deps adapterflow-backend python -c "import socket; socket.getaddrinfo('db', 5432); print('DNS db OK')"
 ```
 
 Fonte: [SQLAlchemy — criação de URLs](https://docs.sqlalchemy.org/en/20/core/engines.html#creating-urls-programmatically).
+
+## Atualização do endereço interno da API
+
+O serviço antes chamado `backend` agora se chama `adapterflow-backend`. O frontend
+participa da rede privada e da rede compartilhada `traefik9`; o nome específico
+reduz o risco de resolver um serviço `backend` de outro projeto. A colisão era uma
+hipótese para o `ECONNREFUSED` observado, não uma causa confirmada por inspeção da VPS.
+O backend continua somente na rede privada, sem publicar a porta 8000 no host.
+
+Na pasta deste projeto, após o backup habitual:
+
+```bash
+git pull --ff-only origin master
+docker compose config --quiet
+docker compose up -d --build --remove-orphans
+docker compose ps
+```
+
+`--remove-orphans` remove containers antigos deste projeto, incluindo o antigo
+serviço `backend`; não remove os volumes. Os volumes de banco e storage mantêm os
+mesmos nomes. Preserve o nome do projeto Compose e o `.env` existentes.
+Reconstruir o frontend é necessário porque o destino do proxy é definido no build.
+
+Teste a conexão a partir do próprio frontend, sem usar credenciais:
+
+```bash
+docker compose exec adapterflow-web node -e 'fetch("http://adapterflow-backend:8000/api/v1/ready", {signal:AbortSignal.timeout(5000)}).then(async r=>{console.log("HTTP",r.status,await r.text());if(!r.ok)process.exitCode=1}).catch(e=>{console.error(e.cause?.code||e.message);process.exitCode=1})'
+```
+
+Esperado: HTTP 200 com `status: ready`. Depois valide Marketplaces pela interface.
+Se falhar, colete `docker compose logs --since=5m --tail=100 adapterflow-backend adapterflow-web`.
+Não é necessário alterar credenciais do Mercado Livre para corrigir esse transporte.
+
+Fonte: [Docker — aliases de rede](https://docs.docker.com/reference/compose-file/services/#aliases).
 
 Extração tem timeout de 300 segundos; o worker Docker limita memória/CPU. Jobs abandonados em PROCESSING por dez minutos tornam-se FAILED; reenviar cria nova fonte imutável. O subprocesso não recebe credenciais e usa diretório temporário, mas não é um sandbox completo de sistema operacional.
 
