@@ -1441,6 +1441,33 @@
         }
       }
     },
+    "/api/v1/marketplaces/mercadolivre/configuration": {
+      "get": {
+        "tags": [
+          "marketplaces"
+        ],
+        "summary": "Mercadolivre Configuration",
+        "description": "Authenticated diagnostics: public identifiers only, never credential values.",
+        "operationId": "mercadolivre_configuration_api_v1_marketplaces_mercadolivre_configuration_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MercadoLivreConfigurationResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBasic": []
+          }
+        ]
+      }
+    },
     "/api/v1/marketplaces/overview": {
       "get": {
         "tags": [
@@ -3366,6 +3393,51 @@
           "accounts"
         ],
         "title": "MarketplacesOverviewResponse"
+      },
+      "MercadoLivreConfigurationResponse": {
+        "properties": {
+          "app_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Id"
+          },
+          "redirect_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redirect Uri"
+          },
+          "ready": {
+            "type": "boolean",
+            "title": "Ready"
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "app_id",
+          "redirect_uri",
+          "ready",
+          "issues"
+        ],
+        "title": "MercadoLivreConfigurationResponse"
       },
       "NotificationReceipt": {
         "properties": {

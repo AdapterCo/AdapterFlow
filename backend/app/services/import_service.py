@@ -28,17 +28,20 @@ logger = logging.getLogger(__name__)
 def extract_isolated(storage: StorageService, path: str) -> list[dict]:
     with storage.materialize(path) as source, TemporaryDirectory() as directory:
         output = Path(directory) / "result.json"
-        result = subprocess.run(
-            [sys.executable, "-m", "app.importers.runner", str(source), str(output)],
-            timeout=300, capture_output=True, check=False,
-            cwd=directory,
-            env={**{key: value for key, value in os.environ.items() if key.upper() in {"PATH", "SYSTEMROOT", "TEMP", "TMP", "TESSDATA_PREFIX"}},
-                 "PYTHONPATH": str(Path(__file__).resolve().parents[2]), "PYTHONUTF8": "1",
-                 "OCR_ENABLED": str(settings.OCR_ENABLED), "OCR_LANGUAGE": settings.OCR_LANGUAGE, "MAX_PDF_PAGES": str(settings.MAX_PDF_PAGES)},
-        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "app.importers.runner", str(source), str(output)],
+                timeout=300, capture_output=True, check=False,
+                cwd=directory,
+                env={**{key: value for key, value in os.environ.items() if key.upper() in {"PATH", "SYSTEMROOT", "TEMP", "TMP", "TESSDATA_PREFIX"}},
+                     "PYTHONPATH": str(Path(__file__).resolve().parents[2]), "PYTHONUTF8": "1",
+                     "OCR_ENABLED": str(settings.OCR_ENABLED), "OCR_LANGUAGE": settings.OCR_LANGUAGE, "MAX_PDF_PAGES": str(settings.MAX_PDF_PAGES)},
+            )
+        except subprocess.TimeoutExpired:
+            raise ValueError("A extração excedeu 5 minutos. Tente processar um intervalo menor de páginas ou revise o OCR do arquivo.") from None
         if result.returncode:
             # The runner returns only classified errors; never expose subprocess stderr.
-            error = json.loads(output.read_text()) if output.exists() else {}
+            error = json.loads(output.read_text(encoding="utf-8")) if output.exists() else {}
             raise ValueError(error.get("error", "Falha ao extrair PDF."))
         return json.loads(output.read_text(encoding="utf-8"))
 

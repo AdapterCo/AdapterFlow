@@ -1,6 +1,7 @@
 from typing import Optional
 from uuid import UUID
-from fastapi import APIRouter, status, Query, Depends, Request, Response
+from fastapi import APIRouter, status, Query, Depends, Request, Response, HTTPException
+from urllib.parse import urlsplit
 from app.api.deps import DBSession
 from app.core.security import require_admin
 from app.core.config import settings
@@ -12,11 +13,36 @@ from app.schemas.marketplace import (
     PublishProductRequest,
     MarketplaceListingResponse,
     MarketplaceListingListResponse,
+    MercadoLivreConfigurationResponse,
 )
 from app.services.mercadolivre_service import MercadoLivreService
 
 router = APIRouter()
 service = MercadoLivreService()
+
+
+@router.get("/mercadolivre/configuration", response_model=MercadoLivreConfigurationResponse)
+async def mercadolivre_configuration():
+    """Authenticated diagnostics: public identifiers only, never credential values."""
+    from app.core.tokens import cipher
+    issues = []
+    if not service.client.app_id or not service.client.app_id.isdigit():
+        issues.append("Defina MERCADOLIVRE_APP_ID com o ID numérico da aplicação.")
+    if not service.client.client_secret:
+        issues.append("Defina MERCADOLIVRE_CLIENT_SECRET da mesma aplicação.")
+    redirect = service.client.redirect_uri
+    try:
+        parts = urlsplit(redirect or "")
+        redirect_valid = parts.scheme == "https" and parts.hostname and parts.path == "/marketplaces/callback" and not (parts.query or parts.fragment or parts.username or parts.password)
+    except ValueError:
+        redirect_valid = False
+    if not redirect_valid:
+        issues.append("Configure MERCADOLIVRE_REDIRECT_URI com HTTPS e o caminho /marketplaces/callback, igual ao painel do Mercado Livre.")
+    try:
+        cipher()
+    except HTTPException as exc:
+        issues.append(str(exc.detail))
+    return {"app_id": service.client.app_id, "redirect_uri": redirect, "ready": not issues, "issues": issues}
 
 
 @router.get("/overview", response_model=MarketplacesOverviewResponse)

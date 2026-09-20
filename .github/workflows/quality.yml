@@ -49,4 +49,7 @@ jobs:
       - run: node scripts/test-middleware.mjs
       - run: npx tsc --noEmit --incremental false
       - run: npm run build
+        env:
+          INTERNAL_BACKEND_URL: http://127.0.0.1:18080
       - run: node scripts/smoke-auth.mjs
+      - run: node scripts/smoke-proxy.mjs

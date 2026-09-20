@@ -39,7 +39,7 @@ import { Progress } from "@/components/ui/progress";
 import { Loader2, Plus, UploadCloud, File, X } from "lucide-react";
 import { toast } from "sonner";
 
-const uploadSchema = z.object({ supplier: z.string().uuid(), layout: z.boolean().refine(value => value, "Confirme o layout LEHMOX.") });
+const uploadSchema = z.object({ supplier: z.string().uuid("Selecione um fornecedor.") });
 
 export default function ImportsPage() {
   const router = useRouter();
@@ -50,8 +50,7 @@ export default function ImportsPage() {
   const uploadImport = useUploadImport();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const form = useForm<z.infer<typeof uploadSchema>>({ resolver: zodResolver(uploadSchema), defaultValues: { supplier: "", layout: false } });
-  const layoutConfirmed = form.watch("layout");
+  const form = useForm<z.infer<typeof uploadSchema>>({ resolver: zodResolver(uploadSchema), defaultValues: { supplier: "" } });
   const selectedSupplier = form.watch("supplier");
   const setSelectedSupplier = (value: string) => form.setValue("supplier", value);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -59,7 +58,7 @@ export default function ImportsPage() {
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
-    if (file && file.type === "application/pdf") {
+    if (file && file.name.toLowerCase().endsWith(".pdf")) {
       if (file.size > 200 * 1024 * 1024) {
         toast.error("O arquivo excede o limite de 200MB.");
         return;
@@ -74,10 +73,11 @@ export default function ImportsPage() {
     onDrop,
     accept: { "application/pdf": [".pdf"] },
     maxFiles: 1,
+    maxSize: 200 * 1024 * 1024,
+    onDropRejected: () => toast.error("Selecione um único PDF de até 200 MB."),
   });
 
   const handleUpload = form.handleSubmit(() => {
-    if (!layoutConfirmed) { toast.error("Confirme o layout LEHMOX do PDF."); return; }
     if (!selectedSupplier) {
       toast.error("Selecione um fornecedor.");
       return;
@@ -230,7 +230,7 @@ export default function ImportsPage() {
           </DialogHeader>
           
           <div className="space-y-6 pt-4">
-            <label className="flex gap-2"><input type="checkbox" checked={layoutConfirmed} onChange={e => form.setValue("layout", e.target.checked)} />Confirmo que o PDF utiliza o layout de catálogo LEHMOX suportado.</label>
+            <p className="text-sm text-muted-foreground">Envie o catálogo completo. Os itens identificados serão apresentados para revisão antes de entrar no cadastro.</p>
             <div className="space-y-2">
               <label className="text-sm font-medium">Fornecedor</label>
               {supplierError ? <QueryError error={supplierError} retry={refetchSuppliers} /> : (!suppliersData?.items || suppliersData.items.length === 0) ? (
@@ -284,7 +284,7 @@ export default function ImportsPage() {
                     Arraste o arquivo PDF aqui ou clique para selecionar
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Apenas arquivos .pdf até 50MB
+                    Apenas arquivos .pdf até 200 MB
                   </p>
                 </div>
               ) : (
@@ -330,7 +330,7 @@ export default function ImportsPage() {
               </Button>
               <Button 
                 onClick={handleUpload}
-                disabled={!layoutConfirmed || !selectedSupplier || !selectedFile || uploadImport.isPending}
+                disabled={!selectedSupplier || !selectedFile || uploadImport.isPending}
               >
                 {uploadImport.isPending ? (
                   <>

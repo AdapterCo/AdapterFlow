@@ -40,7 +40,7 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const errorBody = await res.json().catch(() => null);
-    const message = (Array.isArray(errorBody?.detail) ? errorBody.detail.map((item: { msg: string }) => item.msg).join("; ") : errorBody?.detail) || `Erro na requisição: ${res.status} ${res.statusText}`;
+    const message = (Array.isArray(errorBody?.detail) ? errorBody.detail.map((item: { msg: string }) => item.msg).join("; ") : errorBody?.detail) || (res.status >= 500 ? "A API do AdapterFlow está indisponível ou não respondeu a tempo. Verifique os serviços na VPS; esta falha não indica recusa do Mercado Livre." : `Erro na requisição: ${res.status} ${res.statusText}`);
     throw new Error(message);
   }
   return res.json();

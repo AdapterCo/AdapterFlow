@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from pathlib import Path, PureWindowsPath
 from tempfile import NamedTemporaryFile
 from urllib.parse import quote
+import shutil
 
 
 class StorageService:
@@ -45,10 +46,13 @@ class StorageService:
 
     @contextmanager
     def materialize(self, path: str):
-        with NamedTemporaryFile(suffix=Path(path).suffix, delete=False) as file:
-            temporary_path = Path(file.name)
-            file.write(self.get(path))
+        temporary_path = None
         try:
+            with NamedTemporaryFile(suffix=Path(path).suffix, delete=False) as file:
+                temporary_path = Path(file.name)
+                with self._get_full_path(path).open("rb") as source:
+                    shutil.copyfileobj(source, file, length=1024 * 1024)
             yield temporary_path
         finally:
-            temporary_path.unlink(missing_ok=True)
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)

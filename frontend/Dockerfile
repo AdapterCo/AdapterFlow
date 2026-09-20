@@ -34,6 +34,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/public/ ./public/
 # Copy standalone build output
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/healthcheck.mjs ./scripts/healthcheck.mjs
 
 USER nextjs
 

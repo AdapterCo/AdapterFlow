@@ -35,6 +35,13 @@ class MarketplacesOverviewResponse(BaseModel):
     accounts: list[MarketplaceAccountResponse]
 
 
+class MercadoLivreConfigurationResponse(BaseModel):
+    app_id: str | None
+    redirect_uri: str | None
+    ready: bool
+    issues: list[str]
+
+
 class OAuthCallbackRequest(BaseModel):
     code: str
     state: str = Field(..., min_length=20, max_length=200)

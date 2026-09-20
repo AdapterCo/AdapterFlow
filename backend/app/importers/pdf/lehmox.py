@@ -212,7 +212,8 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
                 logger.debug(f"Processing page {page_num}")
 
                 # 1. Extract text blocks with position info
-                text_data = page.get_text("dict")
+                # Images are extracted separately below; loading them here duplicates decoding.
+                text_data = page.get_text("dict", flags=fitz.TEXTFLAGS_DICT & ~fitz.TEXT_PRESERVE_IMAGES)
                 if not page.get_text().strip():
                     if not settings.OCR_ENABLED:
                         raise ValueError("OCR_REQUIRED: PDF sem texto nativo; habilite OCR no servidor.")
@@ -241,7 +242,18 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
     def _extract_text_blocks(self, text_data: dict, page_num: int) -> list[dict]:
         """Extract text blocks with their bounding boxes and content."""
         blocks = []
+        source_blocks = []
         for block in text_data.get("blocks", []):
+            lines = block.get("lines", [])
+            codes = {match.group(1).upper() for line in lines for span in line.get("spans", [])
+                     for match in PRODUCT_CODE_REGEX.finditer(span.get("text", ""))}
+            if block.get("type") == 0 and len(codes) > 1:
+                # MuPDF may group adjacent product headings into one text block.
+                # Preserve their own coordinates instead of dropping all but the first code.
+                source_blocks.extend({"type": 0, "lines": [line], "bbox": line["bbox"]} for line in lines)
+            else:
+                source_blocks.append(block)
+        for block in source_blocks:
             if block.get("type") != 0:  # 0 = text block
                 continue
 

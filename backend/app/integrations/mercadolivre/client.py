@@ -48,7 +48,7 @@ class MercadoLivreClient:
                 response = await self._http_client.request(method, API_BASE_URL + path, headers=headers, **options)
             except (httpx.TimeoutException, httpx.NetworkError):
                 if method != "GET" or attempt == 2:
-                    raise
+                    raise HTTPException(503, "Não foi possível acessar o Mercado Livre. Tente novamente; em uma autorização, reinicie pelo botão Autorizar conta.") from None
                 await asyncio.sleep(0.5 * (2 ** attempt))
                 continue
             if method == "GET" and response.status_code in (429, 500, 502, 503, 504) and attempt < 2:

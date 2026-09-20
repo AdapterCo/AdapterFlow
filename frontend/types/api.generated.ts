@@ -345,6 +345,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/marketplaces/mercadolivre/configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mercadolivre Configuration
+         * @description Authenticated diagnostics: public identifiers only, never credential values.
+         */
+        get: operations["mercadolivre_configuration_api_v1_marketplaces_mercadolivre_configuration_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/marketplaces/overview": {
         parameters: {
             query?: never;
@@ -975,6 +995,17 @@ export interface components {
             channels: components["schemas"]["MarketplaceChannelStatus"][];
             /** Accounts */
             accounts: components["schemas"]["MarketplaceAccountResponse"][];
+        };
+        /** MercadoLivreConfigurationResponse */
+        MercadoLivreConfigurationResponse: {
+            /** App Id */
+            app_id: string | null;
+            /** Redirect Uri */
+            redirect_uri: string | null;
+            /** Ready */
+            ready: boolean;
+            /** Issues */
+            issues: string[];
         };
         /** NotificationReceipt */
         NotificationReceipt: {
@@ -2437,6 +2468,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mercadolivre_configuration_api_v1_marketplaces_mercadolivre_configuration_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MercadoLivreConfigurationResponse"];
                 };
             };
         };

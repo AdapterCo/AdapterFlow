@@ -54,9 +54,11 @@ function CallbackContent() {
           <div className="h-14 w-14 rounded-full bg-rose-100 dark:bg-rose-950/40 flex items-center justify-center text-rose-600">
             <AlertTriangle className="h-8 w-8" />
           </div>
-          <h2 className="text-xl font-bold text-foreground">Autorização Recusada</h2>
+          <h2 className="text-xl font-bold text-foreground">{errorParam ? "Autorização não concluída" : "Conexão não iniciada pelo AdapterFlow"}</h2>
           <p className="text-sm text-muted-foreground">
-            {errorDescription || "O acesso ao Mercado Livre não foi concedido."}
+            {errorParam
+              ? errorDescription || "O Mercado Livre retornou um erro na autorização. Inicie novamente pelo botão Autorizar conta."
+              : "Este retorno está sem o código ou o identificador de segurança. A permissão pode existir no Mercado Livre, mas a conexão local não foi concluída. Volte para Marketplaces e clique em Autorizar conta; não use um link montado manualmente."}
           </p>
           <Button variant="outline" onClick={() => router.push("/marketplaces")}>
             <ArrowLeft className="h-4 w-4 mr-2" />
