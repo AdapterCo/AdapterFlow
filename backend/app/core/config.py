@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from sqlalchemy.engine import URL, make_url
 
 class Settings(BaseSettings):
@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     MERCADOLIVRE_APP_ID: str | None = None
     MERCADOLIVRE_CLIENT_SECRET: str | None = None
     MERCADOLIVRE_REDIRECT_URI: str | None = None
+
+    @field_validator("MERCADOLIVRE_APP_ID", "MERCADOLIVRE_CLIENT_SECRET", "MERCADOLIVRE_REDIRECT_URI", mode="before")
+    @classmethod
+    def _strip_credential(cls, value):
+        # Spaces, CRLF or wrapping quotes pasted into .env make the provider answer invalid_client.
+        return value.strip().strip("\"'").strip() or None if isinstance(value, str) else value
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
