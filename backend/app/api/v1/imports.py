@@ -32,8 +32,9 @@ async def _handle_upload(
     file: UploadFile,
     importer_type: str,
 ):
-    if importer_type != "lehmox":
-        raise HTTPException(501, "Importador não implementado.")
+    normalized_importer = (importer_type or "lehmox").strip().lower()
+    if normalized_importer not in {"lehmox", "pdf", "catalog", "generic"}:
+        normalized_importer = "lehmox"
     if not file.filename or len(file.filename) > 255 or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Apenas arquivos no formato PDF são aceitos.")
 
@@ -114,6 +115,11 @@ async def update_import_item_alias(item_id: UUID, data: ImportItemUpdateRequest,
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     return item
+
+@router.post("/{id}/approve-all")
+async def approve_all_import_items(id: UUID, db: DBSession):
+    return await service.approve_all_items(db, id)
+
 
 @router.post("/{id}/confirm", response_model=ImportJobResponse)
 async def confirm_import(

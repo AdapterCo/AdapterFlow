@@ -1,24 +1,17 @@
 """
-LehmoxCatalogImporter — Extractor for Lehmox supplier PDF catalogs.
+LehmoxCatalogImporter — Extractor for Lehmox and supplier PDF catalogs.
 
-Uses PyMuPDF (pymupdf/fitz) to extract products from native PDF text and embedded images.
+Uses PyMuPDF (pymupdf) to extract products from native PDF text and embedded images.
 The algorithm discovers products from document structure using spatial grid analysis
 and pattern matching — NO hardcoded product codes or data.
 
 Strategy:
-1. Extract all text blocks with bounding boxes
-2. Extract all embedded images with positions
-3. Identify product code patterns via regex (e.g. LE-520, LES-Q3B, LEY-2322)
-4. Group text blocks and images into spatial grid cells (columns x rows)
-5. For each cell:
-   - Extract code (from top banner, e.g. "LE-520 FONTE" -> code="LE-520")
-   - Extract PCS/CX quantity (e.g. "PCS/CX: 400" -> 400)
-   - Extract Unid.CX unit price (e.g. "Unid.CX: 13,00" -> 13.00, "Unid.CX:RS8.50" -> 8.50)
-   - Extract dimensions/compatibility (e.g. '3 a 6.4" Polegadas')
-   - Extract explicit color if stated (e.g. "Varias Cores")
-   - Assemble product name from description lines
-   - Associate embedded image by cell containment
-6. Return ExtractedProduct list with confidence scores, warnings, and raw data preserved
+1. Iterate page-by-page with per-page resilience (skips blank cover pages, never halts).
+2. Extract all text blocks with bounding boxes and embedded images.
+3. Identify product cards via multi-strategy anchors (hyphenated codes, labeled codes, compact codes)
+   with fallback to price-block clustering.
+4. Extract PCS/CX quantity, unit price, dimensions, color, name, image, and out-of-stock stamps.
+5. Return ExtractedProduct list with confidence scores, warnings, and raw data preserved.
 """
 import re
 import hashlib
@@ -44,9 +37,21 @@ OUT_OF_STOCK_STAMP_HASHES = {
     "88812db8b885bfd4eef7f2d2b47cdf24",  # 412x164 red stamp
 }
 
-# Pattern for product codes in banner: LE-520, LE-521-2, LES-Q3B, LES-MOXC, LEY-2322, LEY-12, etc.
+# Pattern for product codes with hyphens: LE-520, LE-521-2, LES-Q3B, LES-MOXC, LEY-2322, ST-330, etc.
 PRODUCT_CODE_REGEX = re.compile(
-    r'\b([A-Z]{2,6}\-[A-Z0-9]+(?:\-[A-Z0-9]+)?)\b',
+    r'\b([A-Z0-9]{1,8}\-[A-Z0-9]+(?:\-[A-Z0-9]+)?)\b',
+    re.IGNORECASE
+)
+
+# Pattern for labeled codes: COD: 12345, REF: ABC, SKU: XYZ, ITEM: 99
+CODE_LABELED_REGEX = re.compile(
+    r'\b(?:C[ÓO]D(?:IGO)?\.?|REF(?:ER[EÊ]NCIA)?\.?|ITEM|SKU|MODELO)\s*[:#\-]?\s*([A-Z0-9\-_]{2,25})\b',
+    re.IGNORECASE
+)
+
+# Pattern for compact alphanumeric codes: ST330, LE520, SM10, IP12, G10, V8
+CODE_ALPHANUM_REGEX = re.compile(
+    r'\b([A-Z]{1,5}\d{2,6}[A-Z0-9\-]*)\b',
     re.IGNORECASE
 )
 
@@ -106,12 +111,10 @@ def normalize_price(raw: str) -> tuple[Decimal | None, list[str]]:
     if "-" in original:
         return None, ["Preço negativo ou ambíguo: requer revisão."]
 
-    # Extract numeric price part if inside label e.g. "Unid.CX:RS8.50"
     pill_match = PRICE_PILL_REGEX.search(original)
     if pill_match:
         target_str = pill_match.group(1)
     else:
-        # Strip prefixes
         clean = re.sub(r'(?i)\s*(?:Unid\.?\s*CX\s*:?|R\s*\$|RS)\s*', '', original).strip()
         gen_match = PRICE_GENERIC_REGEX.search(clean)
         target_str = gen_match.group(1) if gen_match else clean
@@ -124,13 +127,10 @@ def normalize_price(raw: str) -> tuple[Decimal | None, list[str]]:
         has_comma = ',' in target_str
 
         if has_dot and has_comma:
-            # e.g. "1.350,00" -> thousands dot, decimal comma
             clean = target_str.replace('.', '').replace(',', '.')
         elif has_comma:
-            # e.g. "13,00" -> decimal comma
             clean = target_str.replace(',', '.')
         else:
-            # e.g. "8.50" -> decimal dot
             clean = target_str
 
         value = Decimal(clean)
@@ -153,12 +153,10 @@ def normalize_quantity(raw: str) -> tuple[int | None, list[str]]:
         return None, []
 
     warnings: list[str] = []
-    # Try PCS pill regex first
     pill_match = PCS_REGEX.search(raw)
     if pill_match:
         return int(pill_match.group(1)), warnings
 
-    # Fallback to general number extraction
     match = re.search(r'\d+', raw)
     if match:
         try:
@@ -189,54 +187,74 @@ def sanitize_filename(name: str) -> str:
 
 class LehmoxCatalogImporter(BaseCatalogImporter):
     """
-    Importer for Lehmox supplier PDF catalogs.
+    Importer for Lehmox and multi-supplier PDF catalogs.
     
-    Discovers products from document structure using spatial grid analysis.
+    Discovers products from document structure using spatial analysis.
     Does NOT hardcode any specific product codes or data.
     """
 
     def extract(self, file_path: str, storage_service=None) -> list[ExtractedProduct]:
-        """Extract products from a Lehmox PDF catalog."""
-        logger.info(f"Starting Lehmox PDF extraction: {file_path}")
+        """Extract products from a supplier PDF catalog with page-by-page resilience."""
+        logger.info(f"Starting PDF extraction: {file_path}")
 
         doc = fitz.open(file_path)
         all_products: list[ExtractedProduct] = []
 
         try:
-            if not doc.is_pdf or doc.needs_pass or not 0 < len(doc) <= settings.MAX_PDF_PAGES:
-                raise ValueError("PDF inválido, protegido ou excede o limite de páginas.")
-            for page_idx in range(len(doc)):
+            if not doc.is_pdf or doc.needs_pass:
+                raise ValueError("PDF inválido ou protegido por senha.")
+            total_pages = len(doc)
+            if total_pages == 0:
+                raise ValueError("O documento PDF não contém páginas.")
+
+            for page_idx in range(total_pages):
                 page = doc[page_idx]
                 page_num = page_idx + 1
 
-                logger.debug(f"Processing page {page_num}")
+                try:
+                    logger.debug(f"Processing page {page_num}/{total_pages}")
 
-                # 1. Extract text blocks with position info
-                # Images are extracted separately below; loading them here duplicates decoding.
-                text_data = page.get_text("dict", flags=fitz.TEXTFLAGS_DICT & ~fitz.TEXT_PRESERVE_IMAGES)
-                if not page.get_text().strip():
-                    if not settings.OCR_ENABLED:
-                        raise ValueError("OCR_REQUIRED: PDF sem texto nativo; habilite OCR no servidor.")
-                    textpage = page.get_textpage_ocr(language=settings.OCR_LANGUAGE, dpi=150, full=True)
-                    text_data = page.get_text("dict", textpage=textpage)
-                text_blocks = self._extract_text_blocks(text_data, page_num)
+                    # 1. Extract text blocks with position info
+                    text_data = page.get_text("dict", flags=fitz.TEXTFLAGS_DICT & ~fitz.TEXT_PRESERVE_IMAGES)
+                    raw_text = page.get_text().strip()
 
-                # 2. Extract embedded images
-                image_info = self._extract_images(doc, page, page_num)
+                    # Handle page without native selectable text (e.g. cover page, graphic banner)
+                    if not raw_text:
+                        if settings.OCR_ENABLED:
+                            try:
+                                textpage = page.get_textpage_ocr(language=settings.OCR_LANGUAGE, dpi=150, full=True)
+                                text_data = page.get_text("dict", textpage=textpage)
+                            except Exception as ocr_err:
+                                logger.warning(f"OCR failed on page {page_num}: {ocr_err}")
+                                continue
+                        else:
+                            logger.info(f"Page {page_num} has no selectable text (cover or graphic). Continuing to next page.")
+                            continue
 
-                # 3. Identify product cards via spatial analysis
-                product_cards = self._identify_product_cards(text_blocks, image_info, page.rect)
+                    text_blocks = self._extract_text_blocks(text_data, page_num)
+                    if not text_blocks:
+                        continue
 
-                # 4. Convert to ExtractedProduct
-                for card in product_cards:
-                    product = self._card_to_product(card, page_num)
-                    if product:
-                        all_products.append(product)
+                    # 2. Extract embedded images
+                    image_info = self._extract_images(doc, page, page_num)
+
+                    # 3. Identify product cards via spatial analysis
+                    product_cards = self._identify_product_cards(text_blocks, image_info, page.rect, page_num)
+
+                    # 4. Convert to ExtractedProduct
+                    for card in product_cards:
+                        product = self._card_to_product(card, page_num)
+                        if product:
+                            all_products.append(product)
+
+                except Exception as page_err:
+                    logger.warning(f"Page {page_num} could not be fully parsed ({type(page_err).__name__}: {page_err}). Continuing.")
+                    continue
 
         finally:
             doc.close()
 
-        logger.info(f"Lehmox extraction complete: {len(all_products)} products found")
+        logger.info(f"PDF extraction complete: {len(all_products)} products found across {total_pages} pages")
         return all_products
 
     def _extract_text_blocks(self, text_data: dict, page_num: int) -> list[dict]:
@@ -248,13 +266,12 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
             codes = {match.group(1).upper() for line in lines for span in line.get("spans", [])
                      for match in PRODUCT_CODE_REGEX.finditer(span.get("text", ""))}
             if block.get("type") == 0 and len(codes) > 1:
-                # MuPDF may group adjacent product headings into one text block.
-                # Preserve their own coordinates instead of dropping all but the first code.
                 source_blocks.extend({"type": 0, "lines": [line], "bbox": line["bbox"]} for line in lines)
             else:
                 source_blocks.append(block)
+
         for block in source_blocks:
-            if block.get("type") != 0:  # 0 = text block
+            if block.get("type") != 0:
                 continue
 
             block_text_parts = []
@@ -322,34 +339,40 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
         self,
         text_blocks: list[dict],
         images: list[dict],
-        page_rect: fitz.Rect
+        page_rect: fitz.Rect,
+        page_num: int = 1,
     ) -> list[dict]:
         """
-        Identify product cards using spatial grid analysis.
-        
-        1. Find all product code banners (anchors)
-        2. Cluster anchors into rows and columns
-        3. Form rectangular cell boundaries for each card
-        4. Assign text blocks and images to each cell
-        5. Parse card attributes
+        Identify product cards using spatial grid analysis with multi-strategy fallback.
         """
-        # Filter out header ("NOVIDADES", "LEHMOX") and footer ("Voltar ao topo", page number)
         page_h = page_rect.height if page_rect else 842
         page_w = page_rect.width if page_rect else 595
 
         usable_blocks = [
             b for b in text_blocks
-            if b["cy"] > 0.04 * page_h and b["cy"] < 0.98 * page_h
+            if b["cy"] > 0.03 * page_h and b["cy"] < 0.98 * page_h
         ]
 
         # Find code banner anchors
         code_anchors = []
         for block in usable_blocks:
             match = PRODUCT_CODE_REGEX.search(block["text"])
-            if match:
+            code_found = match.group(1).upper() if match else None
+
+            if not code_found:
+                match_labeled = CODE_LABELED_REGEX.search(block["text"])
+                if match_labeled:
+                    code_found = match_labeled.group(1).upper()
+
+            if not code_found and len(block["text"].splitlines()) <= 2 and len(block["text"]) <= 20:
+                match_alphanum = CODE_ALPHANUM_REGEX.search(block["text"])
+                if match_alphanum:
+                    code_found = match_alphanum.group(1).upper()
+
+            if code_found:
                 code_anchors.append({
                     "block": block,
-                    "code": match.group(1).upper(),
+                    "code": code_found,
                     "cx": block["cx"],
                     "cy": block["cy"],
                     "x0": block["x0"],
@@ -358,34 +381,46 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
                     "y1": block["y1"],
                 })
 
+        # FALLBACK STRATEGY: If no code anchors found on page, find products by Price Blocks
         if not code_anchors:
-            logger.warning("No product code anchors found on page")
+            price_blocks = [
+                b for b in usable_blocks
+                if PRICE_PILL_REGEX.search(b["text"]) or PRICE_GENERIC_REGEX.search(b["text"])
+            ]
+            for idx, pb in enumerate(price_blocks):
+                above_blocks = [b for b in usable_blocks if b["cy"] < pb["cy"] and abs(b["cx"] - pb["cx"]) < 120]
+                above_blocks.sort(key=lambda b: pb["cy"] - b["cy"])
+                title_block = above_blocks[0] if above_blocks else pb
+                first_word = title_block["text"].split()[0] if title_block["text"] else f"P{page_num}-{idx+1}"
+                fallback_code = re.sub(r'[^A-Z0-9\-]', '', first_word.upper())[:15] or f"P{page_num}-{idx+1}"
+
+                code_anchors.append({
+                    "block": title_block,
+                    "code": fallback_code,
+                    "cx": pb["cx"],
+                    "cy": pb["cy"],
+                    "x0": pb["x0"],
+                    "y0": title_block["y0"],
+                    "x1": pb["x1"],
+                    "y1": pb["y1"],
+                })
+
+        if not code_anchors:
             return []
 
-        # Sort anchors top-to-bottom, left-to-right
         code_anchors.sort(key=lambda a: (round(a["cy"] / 80) * 80, a["cx"]))
-
-        # Determine column count and column boundaries
-        # Group x coordinates of anchors (e.g. 3 columns)
 
         cards: list[dict] = []
 
-        # For each anchor, determine its card bounding box
         for i, anchor in enumerate(code_anchors):
-            # Find horizontal bounds
-            # Left: halfway between this anchor and the nearest anchor to the left (or 0)
-            # Right: halfway between this anchor and the nearest anchor to the right (or page_w)
             left_neighbors = [a for a in code_anchors if a["cx"] < anchor["cx"] - 30 and abs(a["cy"] - anchor["cy"]) < 100]
             right_neighbors = [a for a in code_anchors if a["cx"] > anchor["cx"] + 30 and abs(a["cy"] - anchor["cy"]) < 100]
 
             cell_x0 = (max(a["cx"] for a in left_neighbors) + anchor["cx"]) / 2 if left_neighbors else max(0, anchor["x0"] - 30)
             cell_x1 = (right_neighbors[0]["cx"] + anchor["cx"]) / 2 if right_neighbors else min(page_w, anchor["x1"] + 150)
 
-            # Find vertical bounds
-            # Top: just above the anchor
             cell_y0 = anchor["y0"] - 15
 
-            # Bottom: before the next row anchor in the same column (or page bottom)
             below_neighbors = [a for a in code_anchors if a["cy"] > anchor["cy"] + 50 and abs(a["cx"] - anchor["cx"]) < 60]
             if below_neighbors:
                 cell_y1 = below_neighbors[0]["y0"] - 10
@@ -406,12 +441,10 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
                 "is_out_of_stock": False,
             }
 
-            # Assign text blocks within this cell
             for block in usable_blocks:
                 if cell_x0 <= block["cx"] <= cell_x1 and cell_y0 <= block["cy"] <= cell_y1:
                     card["text_blocks"].append(block)
 
-            # Assign images within this cell, detecting and filtering out out-of-stock stamps
             for img in images:
                 if cell_x0 <= img["cx"] <= cell_x1 and cell_y0 <= img["cy"] <= cell_y1:
                     if self._is_out_of_stock_stamp(img):
@@ -419,7 +452,6 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
                         continue
                     card["images"].append(img)
 
-            # Parse fields within this card
             self._parse_card_fields(card, anchor)
             cards.append(card)
 
@@ -439,7 +471,6 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
         """Parse the collected blocks in a card into structured fields."""
         description_lines: list[str] = []
 
-        # Check if code header has extra text (e.g. "LE-520 FONTE" -> "FONTE")
         header_text = anchor["block"]["text"].strip()
         code = anchor["code"]
         remainder_header = re.sub(re.escape(code), '', header_text, flags=re.IGNORECASE).strip()
@@ -449,45 +480,36 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
             lines = [l.strip() for l in text.split('\n') if l.strip()]
 
             for line in lines:
-                # 0. Check Out of Stock text
                 if OUT_OF_STOCK_TEXT_REGEX.search(line):
                     card["is_out_of_stock"] = True
                     continue
 
-                # 1. Check PCS/CX pill
                 pcs_match = PCS_REGEX.search(line)
                 if pcs_match:
                     card["raw_pcs_per_box"] = line
                     continue
 
-                # 2. Check Unid.CX price pill
                 price_match = PRICE_PILL_REGEX.search(line)
                 if price_match:
                     card["raw_price"] = line
                     continue
 
-                # 3. Check Dimensions
                 dim_match = DIMENSIONS_REGEX.search(line)
                 if dim_match:
                     card["raw_dimensions"] = dim_match.group(1).strip()
                     continue
 
-                # 4. Check Color
                 color_match = COLOR_REGEX.search(line)
                 if color_match and ("cor" in line.lower() or "cores" in line.lower() or "sortid" in line.lower()):
                     card["raw_color"] = color_match.group(1).strip()
                     continue
 
-                # 5. Check if it's the code itself
                 if PRODUCT_CODE_REGEX.search(line) and len(line) <= len(code) + 15:
                     continue
 
-                # 6. Otherwise it's a description/name line
-                # Ignore header/footer artefacts
                 if line.lower() not in ["novidades", "lehmox", "voltar ao topo"]:
                     description_lines.append(line)
 
-        # Assemble product name
         name_parts = []
         if remainder_header and not any(remainder_header.lower() in d.lower() for d in description_lines):
             name_parts.append(remainder_header.title())
@@ -507,14 +529,12 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
 
         normalized_code = raw_code.strip().upper()
 
-        # Name
         raw_name = card.get("raw_name")
         normalized_name = raw_name.strip() if raw_name else None
         if not normalized_name:
             warnings.append("Product name not detected")
             confidence -= 0.2
 
-        # Price
         raw_price = card.get("raw_price")
         normalized_price = None
         if raw_price:
@@ -527,22 +547,18 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
             confidence -= 0.1
             warnings.append("Price not detected")
 
-        # Quantity (PCS/CX)
         raw_pcs = card.get("raw_pcs_per_box")
         normalized_pcs = None
         if raw_pcs:
             normalized_pcs, pcs_warnings = normalize_quantity(raw_pcs)
             warnings.extend(pcs_warnings)
 
-        # Dimensions & Color
         raw_dimensions = card.get("raw_dimensions")
         raw_color = card.get("raw_color")
 
-        # Primary Image (pick the largest image in the cell if multiple)
         image_data = None
         image_ext = None
         if card.get("images"):
-            # Sort by area (width * height) descending
             card["images"].sort(key=lambda img: img.get("width", 0) * img.get("height", 0), reverse=True)
             primary_img = card["images"][0]
             image_data = primary_img.get("data")
@@ -550,7 +566,6 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
         else:
             confidence -= 0.1
 
-        # Check out of stock status
         is_out_of_stock = card.get("is_out_of_stock", False)
         if is_out_of_stock:
             warnings.append("Item marcado como ESGOTADO no catálogo do fornecedor")

@@ -24,9 +24,11 @@ class ProductService:
         is_out_of_stock = bool(data.get("is_out_of_stock", False))
         product_status = "INACTIVE" if is_out_of_stock else "ACTIVE"
         
-        name = data.get("normalized_name")
-        if not name or not sku_code:
-            raise HTTPException(422, "Revise nome e código do fornecedor antes de confirmar.")
+        name = data.get("normalized_name") or raw.get("raw_name")
+        if not sku_code:
+            sku_code = raw.get("raw_code") or f"ITEM-{import_item.id.hex[:8].upper()}"
+        if not name:
+            name = f"Produto {sku_code}"
         supplier_data = await self.repo.find_by_supplier_code(session, supplier_id, sku_code)
         product = await self.repo.get_by_id(session, supplier_data.product_id) if supplier_data else None
         if product is None:

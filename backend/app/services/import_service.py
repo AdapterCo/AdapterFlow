@@ -145,6 +145,20 @@ class ImportService:
         await session.refresh(item)
         return item
 
+    async def approve_all_items(self, session: AsyncSession, job_id: UUID):
+        job = await session.scalar(select(ImportJob).where(ImportJob.id == job_id).with_for_update())
+        if not job or job.status != "REVIEW_REQUIRED":
+            raise HTTPException(409, "Importação não está disponível para revisão.")
+        items = await self.repo.get_items_by_job(session, job_id)
+        count = 0
+        for item in items:
+            unavailable = bool(item.normalized_data and item.normalized_data.get("is_out_of_stock"))
+            if item.status == "DETECTED" and not unavailable:
+                item.status = "APPROVED"
+                count += 1
+        await session.commit()
+        return {"approved_count": count}
+
     async def confirm_import(self, session: AsyncSession, job_id: UUID, approved_ids=None, rejected_ids=None, storage=None):
         job = await session.scalar(select(ImportJob).where(ImportJob.id == job_id).with_for_update())
         if not job:
@@ -170,11 +184,20 @@ class ImportService:
             if by_id[item_id].status == "IMPORTED":
                 raise HTTPException(409, "Item já importado não pode ser rejeitado.")
             by_id[item_id].status = "REJECTED"
-        if any(item.status in {"DETECTED", "ERROR"} for item in items):
-            raise HTTPException(409, "Revise todos os itens: aprove ou ignore cada pendência.")
+
+        # Marcar pendências restantes como IGNORED para não bloquear a importação dos aprovados
         for item in items:
-            if item.status == "APPROVED":
-                await self.product_svc.create_from_import(session, item, job.supplier_id)
+            if item.status in {"DETECTED", "ERROR"}:
+                item.status = "IGNORED"
+                item.review_notes = "Ignorado na confirmação do lote."
+
+        approved_items = [item for item in items if item.status == "APPROVED"]
+        if not approved_items:
+            raise HTTPException(409, "Nenhum item aprovado para cadastrar. Aprove os produtos que deseja importar antes de confirmar.")
+
+        for item in approved_items:
+            await self.product_svc.create_from_import(session, item, job.supplier_id)
+
         job.total_imported = sum(item.status == "IMPORTED" for item in items)
         job.total_errors = 0
         job.status = "IMPORTED"

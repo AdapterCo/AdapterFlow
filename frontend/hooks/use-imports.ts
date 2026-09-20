@@ -64,6 +64,18 @@ export function useUpdateImportItem() {
   });
 }
 
+export function useApproveAllImportItems() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (jobId: string) => apiClient.post<{ approved_count: number }>(`/api/v1/imports/${jobId}/approve-all`),
+    onSuccess: (_, jobId) => {
+      queryClient.invalidateQueries({ queryKey: ["import-items"] });
+      queryClient.invalidateQueries({ queryKey: ["import", jobId] });
+    },
+  });
+}
+
 export function useConfirmImport() {
   const queryClient = useQueryClient();
   
@@ -79,3 +91,5 @@ export function useConfirmImport() {
     },
   });
 }
+
+
