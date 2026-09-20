@@ -30,6 +30,11 @@ class StorageService:
     def get(self, path: str) -> bytes:
         return self._get_full_path(path).read_bytes()
 
+    def iter_bytes(self, path: str):
+        with self._get_full_path(path).open("rb") as file:
+            while chunk := file.read(1024 * 1024):
+                yield chunk
+
     def delete(self, path: str) -> bool:
         full_path = self._get_full_path(path)
         if not full_path.is_file():

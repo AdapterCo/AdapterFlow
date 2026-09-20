@@ -110,6 +110,36 @@ class ImportItemListResponse(BaseModel):
     items: List[ImportItemResponse]
     total: int
 
+
+class ImportPageResponse(BaseModel):
+    id: UUID
+    import_id: UUID
+    page_number: int
+    width: float | None = None
+    height: float | None = None
+    status: Literal["EXTRACTED", "NEEDS_REVIEW", "FAILED", "EMPTY"]
+    raw_text: str | None = None
+    text_blocks: list[dict] = Field(default_factory=list)
+    image_paths: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    product_count: int
+    error_message: str | None = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def image_urls(self) -> list[str]:
+        from urllib.parse import quote
+        return [f"/api/v1/storage/{quote(path, safe='/')}" for path in self.image_paths]
+
+
+class ImportPageListResponse(BaseModel):
+    items: list[ImportPageResponse]
+    total: int
+
+
 class ImportJobResponse(BaseModel):
     id: UUID
     supplier_id: UUID
@@ -121,12 +151,20 @@ class ImportJobResponse(BaseModel):
     total_detected: Optional[int] = None
     total_imported: Optional[int] = None
     total_errors: Optional[int] = None
+    total_pages: int | None = None
+    processed_pages: int | None = None
+    last_progress_at: datetime | None = None
     error_message: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def original_file_url(self) -> str:
+        return f"/api/v1/imports/{self.id}/source"
 
     @computed_field
     @property

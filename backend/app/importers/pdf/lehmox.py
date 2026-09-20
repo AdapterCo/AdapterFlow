@@ -6,7 +6,7 @@ The algorithm discovers products from document structure using spatial grid anal
 and pattern matching — NO hardcoded product codes or data.
 
 Strategy:
-1. Iterate page-by-page with per-page resilience (skips blank cover pages, never halts).
+1. Iterate every page and preserve its evidence, including pages without detected products.
 2. Extract all text blocks with bounding boxes and embedded images.
 3. Identify product cards via multi-strategy anchors (hyphenated codes, labeled codes, compact codes)
    with fallback to price-block clustering.
@@ -45,7 +45,7 @@ PRODUCT_CODE_REGEX = re.compile(
 
 # Pattern for labeled codes: COD: 12345, REF: ABC, SKU: XYZ, ITEM: 99
 CODE_LABELED_REGEX = re.compile(
-    r'\b(?:C[ÓO]D(?:IGO)?\.?|REF(?:ER[EÊ]NCIA)?\.?|ITEM|SKU|MODELO)\s*[:#\-]?\s*([A-Z0-9\-_]{2,25})\b',
+    r'\b(?:C[ÓO]D(?:IGO)?\.?|REF(?:ER[EÊ]NCIA)?\.?|ITEM|SKU)\s*[:#\-]?\s*([A-Z0-9\-_]{2,25})\b',
     re.IGNORECASE
 )
 
@@ -71,7 +71,7 @@ PRICE_PILL_REGEX = re.compile(
     re.IGNORECASE
 )
 PRICE_GENERIC_REGEX = re.compile(
-    r'(?:R\$|RS|R\s*\$)?\s*(\d{1,3}(?:[.,]\d{1,3})*(?:[.,]\d{2}))',
+    r'(?:R\$|RS|R\s*\$)\s*(\d{1,3}(?:[.,]\d{1,3})*(?:[.,]\d{2}))',
     re.IGNORECASE
 )
 
@@ -116,8 +116,7 @@ def normalize_price(raw: str) -> tuple[Decimal | None, list[str]]:
         target_str = pill_match.group(1)
     else:
         clean = re.sub(r'(?i)\s*(?:Unid\.?\s*CX\s*:?|R\s*\$|RS)\s*', '', original).strip()
-        gen_match = PRICE_GENERIC_REGEX.search(clean)
-        target_str = gen_match.group(1) if gen_match else clean
+        target_str = clean
 
     if not target_str:
         return None, []
@@ -193,68 +192,106 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
     Does NOT hardcode any specific product codes or data.
     """
 
-    def extract(self, file_path: str, storage_service=None) -> list[ExtractedProduct]:
-        """Extract products from a supplier PDF catalog with page-by-page resilience."""
-        logger.info(f"Starting PDF extraction: {file_path}")
+    @staticmethod
+    def _validate_document(doc: fitz.Document) -> None:
+        if not doc.is_pdf or doc.needs_pass:
+            raise ValueError("PDF inválido ou protegido por senha.")
+        if len(doc) == 0:
+            raise ValueError("O documento PDF não contém páginas.")
+        if len(doc) > settings.MAX_PDF_PAGES:
+            raise ValueError(f"PDF excede o limite configurado de {settings.MAX_PDF_PAGES} páginas.")
 
-        doc = fitz.open(file_path)
-        all_products: list[ExtractedProduct] = []
+    def metadata(self, file_path: str) -> dict:
+        with fitz.open(file_path) as doc:
+            self._validate_document(doc)
+            return {"total_pages": len(doc)}
 
+    @staticmethod
+    def _preview(page: fitz.Page, page_num: int) -> dict:
+        # Bound previews of unusual, very large page sizes without changing source data.
+        scale = min(1.0, 1600 / max(page.rect.width, page.rect.height, 1))
+        pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+        return {
+            "data": pixmap.tobytes("png"), "ext": "png", "width": pixmap.width,
+            "height": pixmap.height, "bbox": tuple(page.rect), "page": page_num,
+            "cx": page.rect.width / 2, "cy": page.rect.height / 2, "is_page_preview": True,
+        }
+
+    def extract_page(self, doc: fitz.Document, page_num: int) -> dict:
+        """Return raw evidence plus candidates for one one-based document page."""
+        self._validate_document(doc)
+        if page_num < 1 or page_num > len(doc):
+            raise ValueError("Página fora do intervalo do documento.")
+        result = {
+            "page_number": page_num, "width": None, "height": None,
+            "status": "FAILED", "raw_text": None, "text_blocks": [],
+            "images": [], "products": [], "warnings": [], "error_message": None,
+        }
+        page = None
         try:
-            if not doc.is_pdf or doc.needs_pass:
-                raise ValueError("PDF inválido ou protegido por senha.")
-            total_pages = len(doc)
-            if total_pages == 0:
-                raise ValueError("O documento PDF não contém páginas.")
+            page = doc[page_num - 1]
+            result.update(width=page.rect.width, height=page.rect.height)
+            result["raw_text"] = page.get_text("text")
+            text_data = page.get_text("dict", flags=fitz.TEXTFLAGS_DICT & ~fitz.TEXT_PRESERVE_IMAGES)
+            result["text_blocks"] = self._extract_text_blocks(text_data, page_num)
+            result["images"] = self._extract_images(doc, page, page_num, result["warnings"])
 
-            for page_idx in range(total_pages):
-                page = doc[page_idx]
-                page_num = page_idx + 1
-
+            if not result["raw_text"].strip():
+                if not result["images"] and not page.get_drawings():
+                    result["status"] = "EMPTY"
+                    return result
+                result["images"].append(self._preview(page, page_num))
+                if not settings.OCR_ENABLED:
+                    result["status"] = "NEEDS_REVIEW"
+                    result["warnings"].append("Página sem texto selecionável. As imagens foram preservadas; habilite OCR para reconhecer o texto.")
+                    return result
                 try:
-                    logger.debug(f"Processing page {page_num}/{total_pages}")
+                    textpage = page.get_textpage_ocr(language=settings.OCR_LANGUAGE, dpi=150, full=True)
+                    result["raw_text"] = page.get_text("text", textpage=textpage)
+                    text_data = page.get_text("dict", textpage=textpage)
+                    result["text_blocks"] = self._extract_text_blocks(text_data, page_num)
+                    result["warnings"].append("Texto obtido por OCR; confira a leitura com a página original.")
+                except Exception as exc:
+                    result["error_message"] = f"OCR indisponível ou falhou nesta página ({type(exc).__name__})."
+                    return result
 
-                    # 1. Extract text blocks with position info
-                    text_data = page.get_text("dict", flags=fitz.TEXTFLAGS_DICT & ~fitz.TEXT_PRESERVE_IMAGES)
-                    raw_text = page.get_text().strip()
+            product_images = [image for image in result["images"] if not image.get("is_page_preview")]
+            cards = self._identify_product_cards(result["text_blocks"], product_images, page.rect, page_num)
+            for card in cards:
+                product = self._card_to_product(card, page_num)
+                if product is not None:
+                    result["products"].append(product)
+            if not result["products"]:
+                result["status"] = "NEEDS_REVIEW"
+                result["warnings"].append("Texto preservado, mas não foi possível separar os produtos automaticamente nesta página.")
+                if not any(image.get("is_page_preview") for image in result["images"]):
+                    result["images"].append(self._preview(page, page_num))
+            else:
+                result["status"] = "NEEDS_REVIEW" if result["warnings"] else "EXTRACTED"
+        except Exception as exc:
+            result["status"] = "FAILED"
+            result["error_message"] = f"Falha ao analisar a página {page_num} ({type(exc).__name__}). O conteúdo recuperado foi preservado."
+            logger.warning("Falha de extração página=%s tipo=%s", page_num, type(exc).__name__)
+            if page is not None and not any(image.get("is_page_preview") for image in result["images"]):
+                try:
+                    result["images"].append(self._preview(page, page_num))
+                except Exception:
+                    result["warnings"].append("Não foi possível renderizar a prévia desta página.")
+        return result
 
-                    # Handle page without native selectable text (e.g. cover page, graphic banner)
-                    if not raw_text:
-                        if settings.OCR_ENABLED:
-                            try:
-                                textpage = page.get_textpage_ocr(language=settings.OCR_LANGUAGE, dpi=150, full=True)
-                                text_data = page.get_text("dict", textpage=textpage)
-                            except Exception as ocr_err:
-                                logger.warning(f"OCR failed on page {page_num}: {ocr_err}")
-                                continue
-                        else:
-                            logger.info(f"Page {page_num} has no selectable text (cover or graphic). Continuing to next page.")
-                            continue
-
-                    text_blocks = self._extract_text_blocks(text_data, page_num)
-                    if not text_blocks:
-                        continue
-
-                    # 2. Extract embedded images
-                    image_info = self._extract_images(doc, page, page_num)
-
-                    # 3. Identify product cards via spatial analysis
-                    product_cards = self._identify_product_cards(text_blocks, image_info, page.rect, page_num)
-
-                    # 4. Convert to ExtractedProduct
-                    for card in product_cards:
-                        product = self._card_to_product(card, page_num)
-                        if product:
-                            all_products.append(product)
-
-                except Exception as page_err:
-                    logger.warning(f"Page {page_num} could not be fully parsed ({type(page_err).__name__}: {page_err}). Continuing.")
-                    continue
-
-        finally:
-            doc.close()
-
-        logger.info(f"PDF extraction complete: {len(all_products)} products found across {total_pages} pages")
+    def extract(self, file_path: str, storage_service=None) -> list[ExtractedProduct]:
+        """Compatibility wrapper; incomplete page extraction is never silent success."""
+        all_products: list[ExtractedProduct] = []
+        failed_pages = []
+        with fitz.open(file_path) as doc:
+            self._validate_document(doc)
+            for page_num in range(1, len(doc) + 1):
+                page_result = self.extract_page(doc, page_num)
+                all_products.extend(page_result["products"])
+                if page_result["status"] == "FAILED":
+                    failed_pages.append(page_num)
+        if failed_pages:
+            raise ValueError("Falha na extração das páginas: " + ", ".join(map(str, failed_pages)))
         return all_products
 
     def _extract_text_blocks(self, text_data: dict, page_num: int) -> list[dict]:
@@ -263,9 +300,10 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
         source_blocks = []
         for block in text_data.get("blocks", []):
             lines = block.get("lines", [])
-            codes = {match.group(1).upper() for line in lines for span in line.get("spans", [])
-                     for match in PRODUCT_CODE_REGEX.finditer(span.get("text", ""))}
-            if block.get("type") == 0 and len(codes) > 1:
+            line_texts = [" ".join(span.get("text", "") for span in line.get("spans", [])) for line in lines]
+            codes = {code for text in line_texts if (code := self._find_code(text))}
+            price_lines = sum(bool(PRICE_GENERIC_REGEX.search(text) or PRICE_PILL_REGEX.search(text)) for text in line_texts)
+            if block.get("type") == 0 and (len(codes) > 1 or price_lines > 1):
                 source_blocks.extend({"type": 0, "lines": [line], "bbox": line["bbox"]} for line in lines)
             else:
                 source_blocks.append(block)
@@ -303,7 +341,7 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
 
         return blocks
 
-    def _extract_images(self, doc: fitz.Document, page: fitz.Page, page_num: int) -> list[dict]:
+    def _extract_images(self, doc: fitz.Document, page: fitz.Page, page_num: int, warnings: list[str] | None = None) -> list[dict]:
         """Extract embedded images from a page with their positions."""
         images = []
         seen_xrefs = set()
@@ -330,10 +368,31 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
                         "cx": (rect.x0 + rect.x1) / 2, "cy": (rect.y0 + rect.y1) / 2,
                         "page": page_num,
                     })
-            except Exception as e:
-                logger.warning(f"Failed to extract image xref={xref} on page {page_num}: {e}")
+            except Exception as exc:
+                if warnings is not None:
+                    warnings.append(f"Imagem da página {page_num} não extraída ({type(exc).__name__}).")
+                logger.warning("Imagem não extraída página=%s tipo=%s", page_num, type(exc).__name__)
 
         return images
+
+    @staticmethod
+    def _find_code(text: str) -> str | None:
+        labeled = CODE_LABELED_REGEX.search(text)
+        if labeled:
+            return labeled.group(1).upper()
+        for line in text.splitlines():
+            token = line.strip()
+            # A connector, network/protection standard or model mention is not a supplier code.
+            if re.fullmatch(r"(?:USB-[ABC]|TYPE-C|WI-FI|IP\d+|RJ-?\d+|CAT-?\d+)", token, re.IGNORECASE):
+                continue
+            match = PRODUCT_CODE_REGEX.search(token)
+            if match:
+                candidate = match.group(1).upper()
+                if not re.fullmatch(r"(?:USB-[ABC]|TYPE-C|WI-FI|IP\d+|RJ-?\d+|CAT-?\d+)", candidate, re.IGNORECASE):
+                    return candidate
+            if CODE_ALPHANUM_REGEX.fullmatch(token):
+                return token.upper()
+        return None
 
     def _identify_product_cards(
         self,
@@ -348,26 +407,12 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
         page_h = page_rect.height if page_rect else 842
         page_w = page_rect.width if page_rect else 595
 
-        usable_blocks = [
-            b for b in text_blocks
-            if b["cy"] > 0.03 * page_h and b["cy"] < 0.98 * page_h
-        ]
+        usable_blocks = text_blocks
 
         # Find code banner anchors
         code_anchors = []
         for block in usable_blocks:
-            match = PRODUCT_CODE_REGEX.search(block["text"])
-            code_found = match.group(1).upper() if match else None
-
-            if not code_found:
-                match_labeled = CODE_LABELED_REGEX.search(block["text"])
-                if match_labeled:
-                    code_found = match_labeled.group(1).upper()
-
-            if not code_found and len(block["text"].splitlines()) <= 2 and len(block["text"]) <= 20:
-                match_alphanum = CODE_ALPHANUM_REGEX.search(block["text"])
-                if match_alphanum:
-                    code_found = match_alphanum.group(1).upper()
+            code_found = self._find_code(block["text"])
 
             if code_found:
                 code_anchors.append({
@@ -387,21 +432,20 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
                 b for b in usable_blocks
                 if PRICE_PILL_REGEX.search(b["text"]) or PRICE_GENERIC_REGEX.search(b["text"])
             ]
-            for idx, pb in enumerate(price_blocks):
-                above_blocks = [b for b in usable_blocks if b["cy"] < pb["cy"] and abs(b["cx"] - pb["cx"]) < 120]
+            for pb in price_blocks:
+                above_blocks = [b for b in usable_blocks if 0 < pb["cy"] - b["cy"] < 150 and abs(b["cx"] - pb["cx"]) < 120
+                                and not (PRICE_GENERIC_REGEX.search(b["text"]) or PRICE_PILL_REGEX.search(b["text"]))]
                 above_blocks.sort(key=lambda b: pb["cy"] - b["cy"])
                 title_block = above_blocks[0] if above_blocks else pb
-                first_word = title_block["text"].split()[0] if title_block["text"] else f"P{page_num}-{idx+1}"
-                fallback_code = re.sub(r'[^A-Z0-9\-]', '', first_word.upper())[:15] or f"P{page_num}-{idx+1}"
 
                 code_anchors.append({
                     "block": title_block,
-                    "code": fallback_code,
+                    "code": None,
                     "cx": pb["cx"],
                     "cy": pb["cy"],
-                    "x0": pb["x0"],
+                    "x0": min(pb["x0"], title_block["x0"]),
                     "y0": title_block["y0"],
-                    "x1": pb["x1"],
+                    "x1": max(pb["x1"], title_block["x1"]),
                     "y1": pb["y1"],
                 })
 
@@ -417,13 +461,13 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
             right_neighbors = [a for a in code_anchors if a["cx"] > anchor["cx"] + 30 and abs(a["cy"] - anchor["cy"]) < 100]
 
             cell_x0 = (max(a["cx"] for a in left_neighbors) + anchor["cx"]) / 2 if left_neighbors else max(0, anchor["x0"] - 30)
-            cell_x1 = (right_neighbors[0]["cx"] + anchor["cx"]) / 2 if right_neighbors else min(page_w, anchor["x1"] + 150)
+            cell_x1 = (min(a["cx"] for a in right_neighbors) + anchor["cx"]) / 2 if right_neighbors else min(page_w, anchor["x1"] + 150)
 
             cell_y0 = anchor["y0"] - 15
 
             below_neighbors = [a for a in code_anchors if a["cy"] > anchor["cy"] + 50 and abs(a["cx"] - anchor["cx"]) < 60]
             if below_neighbors:
-                cell_y1 = below_neighbors[0]["y0"] - 10
+                cell_y1 = min(a["y0"] for a in below_neighbors) - 10
             else:
                 cell_y1 = page_h - 10
 
@@ -473,7 +517,8 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
 
         header_text = anchor["block"]["text"].strip()
         code = anchor["code"]
-        remainder_header = re.sub(re.escape(code), '', header_text, flags=re.IGNORECASE).strip()
+        remainder_header = re.sub(re.escape(code), '', header_text, flags=re.IGNORECASE).strip() if code else header_text
+        remainder_header = re.sub(r'(?i)^(?:C[ÓO]D(?:IGO)?\.?|REF(?:ER[EÊ]NCIA)?\.?|ITEM|SKU)\s*[:#\-]?\s*$', '', remainder_header).strip()
 
         for block in card["text_blocks"]:
             text = block["text"].strip()
@@ -489,9 +534,13 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
                     card["raw_pcs_per_box"] = line
                     continue
 
-                price_match = PRICE_PILL_REGEX.search(line)
+                price_match = PRICE_PILL_REGEX.search(line) or PRICE_GENERIC_REGEX.search(line)
                 if price_match:
-                    card["raw_price"] = line
+                    candidate = price_match.group(0)
+                    if card["raw_price"] is None:
+                        card["raw_price"] = candidate
+                    elif normalize_price(card["raw_price"])[0] != normalize_price(candidate)[0]:
+                        card["price_ambiguous"] = True
                     continue
 
                 dim_match = DIMENSIONS_REGEX.search(line)
@@ -504,15 +553,15 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
                     card["raw_color"] = color_match.group(1).strip()
                     continue
 
-                if PRODUCT_CODE_REGEX.search(line) and len(line) <= len(code) + 15:
+                if code and self._find_code(line) == code and len(line) <= len(code) + 15:
                     continue
 
                 if line.lower() not in ["novidades", "lehmox", "voltar ao topo"]:
                     description_lines.append(line)
 
         name_parts = []
-        if remainder_header and not any(remainder_header.lower() in d.lower() for d in description_lines):
-            name_parts.append(remainder_header.title())
+        if remainder_header and not (PRICE_GENERIC_REGEX.search(remainder_header) or PRICE_PILL_REGEX.search(remainder_header)) and not any(remainder_header.lower() in d.lower() for d in description_lines):
+            name_parts.append(remainder_header)
 
         name_parts.extend(description_lines)
         if name_parts:
@@ -521,13 +570,13 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
     def _card_to_product(self, card: dict, page_num: int) -> ExtractedProduct | None:
         """Convert parsed card dictionary to ExtractedProduct dataclass."""
         raw_code = card.get("raw_code")
-        if not raw_code:
-            return None
-
         warnings: list[str] = []
         confidence = 1.0
 
-        normalized_code = raw_code.strip().upper()
+        normalized_code = raw_code.strip().upper() if raw_code else None
+        if not normalized_code:
+            warnings.append("Código do fornecedor não identificado; permanece vazio para revisão.")
+            confidence -= 0.2
 
         raw_name = card.get("raw_name")
         normalized_name = raw_name.strip() if raw_name else None
@@ -537,7 +586,10 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
 
         raw_price = card.get("raw_price")
         normalized_price = None
-        if raw_price:
+        if card.get("price_ambiguous"):
+            warnings.append("Mais de um preço encontrado no mesmo produto; confira a página original.")
+            confidence -= 0.2
+        elif raw_price:
             normalized_price, price_warnings = normalize_price(raw_price)
             warnings.extend(price_warnings)
             if normalized_price is None:

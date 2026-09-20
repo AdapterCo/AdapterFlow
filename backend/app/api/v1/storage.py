@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Response
 from sqlalchemy import select
 from app.api.deps import DBSession, Storage
 from app.models.product_image import ProductImage
-from app.models.import_job import ImportItem
+from app.models.import_job import ImportItem, ImportPage
 
 router = APIRouter()
 
@@ -15,6 +15,8 @@ async def get_image(path: str, db: DBSession, storage: Storage):
     reference = await db.scalar(select(ProductImage.id).where(ProductImage.storage_path == path).limit(1))
     if not reference:
         reference = await db.scalar(select(ImportItem.id).where(ImportItem.image_path == path).limit(1))
+    if not reference:
+        reference = await db.scalar(select(ImportPage.id).where(ImportPage.image_paths.contains([path])).limit(1))
     if not reference:
         raise HTTPException(404, "Imagem não encontrada.")
     try:

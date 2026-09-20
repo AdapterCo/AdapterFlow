@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
 from sqlalchemy.orm import selectinload
-from app.models.import_job import ImportJob, ImportItem
+from app.models.import_job import ImportJob, ImportItem, ImportPage
 from uuid import UUID
 from typing import List
 
@@ -32,6 +32,21 @@ class ImportRepository:
     async def count_jobs(self, session: AsyncSession) -> int:
         result = await session.execute(select(func.count(ImportJob.id)))
         return result.scalar() or 0
+
+    async def list_pages(self, session: AsyncSession, job_id: UUID, skip: int = 0, limit: int = 10) -> List[ImportPage]:
+        result = await session.scalars(
+            select(ImportPage)
+            .where(ImportPage.import_id == job_id)
+            .order_by(ImportPage.page_number)
+            .offset(skip)
+            .limit(limit)
+        )
+        return list(result.all())
+
+    async def count_pages(self, session: AsyncSession, job_id: UUID) -> int:
+        return await session.scalar(
+            select(func.count()).select_from(ImportPage).where(ImportPage.import_id == job_id)
+        ) or 0
 
     async def update_job(self, session: AsyncSession, id: UUID, data: dict) -> ImportJob | None:
         if data:

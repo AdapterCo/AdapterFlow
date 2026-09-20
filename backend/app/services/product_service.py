@@ -5,7 +5,7 @@ from app.models.product_image import ProductImage
 from app.models.import_job import ImportItem
 from uuid import UUID
 from typing import Optional
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from fastapi import HTTPException
 from sqlalchemy import update
 from app.models.pricing import ProductChannelPrice
@@ -13,22 +13,78 @@ from app.models.pricing import ProductChannelPrice
 class ProductService:
     def __init__(self):
         self.repo = ProductRepository()
-        
-    async def create_from_import(self, session: AsyncSession, import_item: ImportItem, supplier_id: UUID):
+
+    @staticmethod
+    def validate_import_item(import_item: ImportItem) -> dict:
+        """Validate reviewed source data before performing any database write.
+
+        Extraction is intentionally permissive. Product registration, however,
+        requires a real name and supplier code, and must respect the column
+        limits even when older jobs were created before review validation.
+        """
         data = {**(import_item.normalized_data or {}), **(import_item.user_edits or {})}
         raw = import_item.raw_data or {}
-        price_val = Decimal(str(data["normalized_price"])) if data.get("normalized_price") is not None else None
-        if price_val is not None and (not price_val.is_finite() or price_val < 0):
-            raise HTTPException(422, "Custo inválido.")
-        sku_code = data.get("normalized_code")
-        is_out_of_stock = bool(data.get("is_out_of_stock", False))
+        page = raw.get("page_number")
+        location = f"Item {import_item.id}"
+        if isinstance(page, int) and not isinstance(page, bool) and page > 0:
+            location += f" (página {page})"
+
+        def invalid(message: str):
+            raise HTTPException(422, f"{location}: {message} Revise o item antes de importar.")
+
+        def text_value(key: str, label: str, limit: int | None = None, required: bool = False):
+            value = data.get(key)
+            if value is not None and not isinstance(value, str):
+                invalid(f"{label} deve ser texto.")
+            value = value.strip() if value is not None else None
+            if not value:
+                if required:
+                    invalid(f"{label} não identificado; informe o valor real do produto.")
+                return None
+            if "\x00" in value:
+                invalid(f"{label} contém um caractere inválido.")
+            if limit is not None and len(value) > limit:
+                invalid(f"{label} excede {limit} caracteres.")
+            return value
+
+        data["normalized_code"] = text_value("normalized_code", "Código do fornecedor", 100, required=True)
+        data["normalized_name"] = text_value("normalized_name", "Nome", 500, required=True)
+        data["normalized_color"] = text_value("normalized_color", "Cor", 100)
+        data["normalized_dimensions"] = text_value("normalized_dimensions", "Dimensões")
+
+        price = data.get("normalized_price")
+        if price is not None:
+            if isinstance(price, (bool, float)) or not isinstance(price, (str, int, Decimal)):
+                invalid("Custo deve ser um decimal em texto.")
+            try:
+                price = Decimal(price)
+            except InvalidOperation:
+                invalid("Custo inválido.")
+            if not price.is_finite() or price < 0 or price > Decimal("99999999.9999"):
+                invalid("Custo deve estar entre 0 e 99999999,9999.")
+            if price != price.quantize(Decimal("0.0001")):
+                invalid("Custo deve ter no máximo quatro casas decimais.")
+        data["normalized_price"] = price
+
+        quantity = data.get("normalized_pcs_per_box")
+        if quantity is not None and (type(quantity) is not int or not 1 <= quantity <= 2147483647):
+            invalid("Quantidade por caixa deve ser um inteiro positivo de até 2147483647.")
+        data["normalized_pcs_per_box"] = quantity
+        unavailable = data.get("is_out_of_stock", False)
+        if type(unavailable) is not bool:
+            invalid("A indicação de esgotado é inválida.")
+        data["is_out_of_stock"] = unavailable
+        return data
+        
+    async def create_from_import(self, session: AsyncSession, import_item: ImportItem, supplier_id: UUID):
+        data = self.validate_import_item(import_item)
+        raw = import_item.raw_data or {}
+        price_val = data["normalized_price"]
+        sku_code = data["normalized_code"]
+        is_out_of_stock = data["is_out_of_stock"]
         product_status = "INACTIVE" if is_out_of_stock else "ACTIVE"
         
-        name = data.get("normalized_name") or raw.get("raw_name")
-        if not sku_code:
-            sku_code = raw.get("raw_code") or f"ITEM-{import_item.id.hex[:8].upper()}"
-        if not name:
-            name = f"Produto {sku_code}"
+        name = data["normalized_name"]
         supplier_data = await self.repo.find_by_supplier_code(session, supplier_id, sku_code)
         product = await self.repo.get_by_id(session, supplier_data.product_id) if supplier_data else None
         if product is None:

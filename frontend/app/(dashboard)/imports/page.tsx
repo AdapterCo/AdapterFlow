@@ -7,9 +7,9 @@ import { z } from "zod";
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useDropzone } from "react-dropzone";
-import { useImports, useUploadImport } from "@/hooks/use-imports";
+import { useImports, useRetryImport, useUploadImport } from "@/hooks/use-imports";
 import { useSuppliers } from "@/hooks/use-suppliers";
-import { formatDate } from "@/lib/utils";
+import { errorMessage, formatDate } from "@/lib/utils";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -48,6 +48,7 @@ export default function ImportsPage() {
   const [supplierOffset, setSupplierOffset] = useState(0);
   const { data: suppliersData, error: supplierError, refetch: refetchSuppliers } = useSuppliers(supplierOffset, 50);
   const uploadImport = useUploadImport();
+  const retryImport = useRetryImport();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const form = useForm<z.infer<typeof uploadSchema>>({ resolver: zodResolver(uploadSchema), defaultValues: { supplier: "" } });
@@ -95,12 +96,13 @@ export default function ImportsPage() {
         onProgress: (p) => setUploadProgress(p),
       },
       {
-        onSuccess: () => {
-          toast.success("Arquivo enviado com sucesso! O catálogo está sendo processado em segundo plano.");
+        onSuccess: (job) => {
+          toast.success("Arquivo recebido. Acompanhe a leitura das páginas e revise os resultados.");
           setIsDialogOpen(false);
           setSelectedFile(null);
           setSelectedSupplier("");
           setUploadProgress(0);
+          router.push(`/imports/${job.id}/review`);
         },
         onError: (err) => {
           toast.error(`Erro ao enviar: ${err.message}`);
@@ -188,7 +190,17 @@ export default function ImportsPage() {
                     </span>
                   </TableCell>
                   <TableCell>{formatDate(job.created_at)}</TableCell>
-                  <TableCell>{getStatusBadge(job.status)}</TableCell>
+                  <TableCell>
+                    <div className="space-y-2">
+                      {getStatusBadge(job.status)}
+                      {job.total_pages != null && (
+                        <p className="text-xs text-muted-foreground">{job.processed_pages ?? 0}/{job.total_pages} páginas processadas</p>
+                      )}
+                      {job.status === "FAILED" && job.error_message && (
+                        <p className="max-w-xs text-xs text-destructive">{job.error_message}</p>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-center">
                     <div className="flex items-center justify-center gap-2 text-sm">
                       <span className="text-zinc-600 font-medium" title="Detectados">{job.items_detected}</span>
@@ -199,6 +211,26 @@ export default function ImportsPage() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
+                    <div className="flex flex-wrap justify-end gap-2">
+                    {job.status === "FAILED" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={retryImport.isPending}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            await retryImport.mutateAsync(job.id);
+                            toast.success("Importação recolocada na fila, sem reenviar o arquivo.");
+                            router.push(`/imports/${job.id}/review`);
+                          } catch (error) {
+                            toast.error(errorMessage(error));
+                          }
+                        }}
+                      >
+                        {retryImport.isPending && retryImport.variables === job.id ? "Retomando..." : "Tentar novamente"}
+                      </Button>
+                    )}
                     <Button 
                       size="sm" 
                       variant={job.status === "IMPORTED" || job.status === "COMPLETED" ? "outline" : "default"}
@@ -207,10 +239,13 @@ export default function ImportsPage() {
                         router.push(`/imports/${job.id}/review`);
                       }}
                     >
-                      {job.status === "IMPORTED" || job.status === "COMPLETED" 
-                        ? "Ver Produtos" 
-                        : `Revisar (${job.items_detected} itens)`}
+                      {["UPLOADED", "PROCESSING"].includes(job.status)
+                        ? "Acompanhar leitura"
+                        : job.status === "IMPORTED" || job.status === "COMPLETED"
+                        ? "Ver produtos"
+                        : "Ver páginas e revisar"}
                     </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
@@ -230,7 +265,7 @@ export default function ImportsPage() {
           </DialogHeader>
           
           <div className="space-y-6 pt-4">
-            <p className="text-sm text-muted-foreground">Envie o catálogo completo. Os itens identificados serão apresentados para revisão antes de entrar no cadastro.</p>
+            <p className="text-sm text-muted-foreground">Envie o catálogo completo. A leitura percorre todas as páginas e preserva o conteúdo disponível. Os produtos identificados serão apresentados para revisão antes de entrar no cadastro.</p>
             <div className="space-y-2">
               <label className="text-sm font-medium">Fornecedor</label>
               {supplierError ? <QueryError error={supplierError} retry={refetchSuppliers} /> : (!suppliersData?.items || suppliersData.items.length === 0) ? (
@@ -313,7 +348,7 @@ export default function ImportsPage() {
             {uploadImport.isPending && (
               <div className="space-y-2">
                 <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Enviando arquivo...</span>
+                  <span>{uploadProgress < 100 ? "Enviando arquivo..." : "Aguardando confirmação do recebimento..."}</span>
                   <span>{uploadProgress}%</span>
                 </div>
                 <Progress value={uploadProgress} className="h-2" />

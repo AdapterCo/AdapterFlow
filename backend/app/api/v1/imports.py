@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Body, Query
+from fastapi.responses import StreamingResponse
 from uuid import UUID
 from typing import Optional
 import logging
@@ -11,6 +12,7 @@ from app.schemas.import_job import (
     ImportJobListResponse,
     ImportItemResponse,
     ImportItemListResponse,
+    ImportPageListResponse,
     ImportItemUpdateRequest,
     ImportConfirmRequest
 )
@@ -93,6 +95,33 @@ async def get_import(id: UUID, db: DBSession):
     if not job:
         raise HTTPException(status_code=404, detail="Import not found")
     return job
+
+
+@router.get("/{id}/pages", response_model=ImportPageListResponse)
+async def get_import_pages(id: UUID, db: DBSession, skip: int = Query(0, ge=0), limit: int = Query(10, ge=1, le=50)):
+    if not await repo.get_job(db, id):
+        raise HTTPException(404, "Importação não encontrada.")
+    return {
+        "items": await repo.list_pages(db, id, skip=skip, limit=limit),
+        "total": await repo.count_pages(db, id),
+    }
+
+
+@router.get("/{id}/source")
+async def get_import_source(id: UUID, db: DBSession, storage: Storage):
+    job = await repo.get_job(db, id)
+    if not job or not storage.exists(job.file_path):
+        raise HTTPException(404, "PDF original não encontrado.")
+    return StreamingResponse(storage.iter_bytes(job.file_path), media_type="application/pdf", headers={
+        "Content-Disposition": 'inline; filename="catalogo.pdf"',
+        "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store",
+    })
+
+
+@router.post("/{id}/retry", response_model=ImportJobResponse)
+async def retry_import(id: UUID, db: DBSession):
+    return await service.retry_import(db, id)
+
 
 @router.get("/{id}/items", response_model=ImportItemListResponse)
 async def get_import_items(id: UUID, db: DBSession, skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100)):

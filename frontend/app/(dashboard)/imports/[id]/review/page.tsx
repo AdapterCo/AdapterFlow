@@ -11,12 +11,16 @@ import {
   useUpdateImportItem,
   useConfirmImport,
   useApproveAllImportItems,
+  useImportPages,
+  useRetryImport,
+  type ImportPage,
 } from "@/hooks/use-imports";
 import { ImportItem } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { Pagination, QueryError } from "@/components/data-state";
-import { errorMessage } from "@/lib/utils";
+import { errorMessage, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 import { CheckCircle2, CheckCheck, UploadCloud, AlertCircle } from "lucide-react";
 
@@ -29,14 +33,17 @@ const editSchema = z.object({
 export default function Review({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [offset, setOffset] = useState(0);
+  const [pageOffset, setPageOffset] = useState(0);
   const [busy, setBusy] = useState(false);
   const pendingEdits = useIsMutating({ mutationKey: ["review-item"] });
 
   const job = useImport(id);
   const items = useImportItems(id, offset, ["UPLOADED", "PROCESSING"].includes(job.data?.status || ""));
+  const pages = useImportPages(id, pageOffset, ["UPLOADED", "PROCESSING"].includes(job.data?.status || ""));
   const update = useUpdateImportItem();
   const approveAll = useApproveAllImportItems();
   const confirm = useConfirmImport();
+  const retry = useRetryImport();
 
   if (job.isError || items.isError) {
     return <QueryError error={job.error || items.error} retry={() => { job.refetch(); items.refetch(); }} />;
@@ -53,6 +60,8 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
   const isProcessing = ["UPLOADED", "PROCESSING"].includes(job.data.status);
   const isImported = job.data.status === "IMPORTED";
   const readOnly = job.data.status !== "REVIEW_REQUIRED" || busy || confirm.isPending || approveAll.isPending;
+  const totalPages = job.data.total_pages;
+  const processedPages = job.data.processed_pages ?? 0;
 
   return (
     <div className="space-y-6">
@@ -64,6 +73,9 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
             {job.data.total_detected ? ` · ${job.data.total_detected} produtos detectados` : ""}
             {isImported ? ` · ${job.data.total_imported || 0} cadastrados com sucesso` : ""}
           </p>
+          {job.data.original_file_url && (
+            <a href={job.data.original_file_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-sm underline underline-offset-4">Abrir PDF original</a>
+          )}
         </div>
 
         {job.data.status === "REVIEW_REQUIRED" && (
@@ -71,11 +83,12 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
             <Button
               variant="outline"
               className="gap-2 border-emerald-600/30 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
-              disabled={readOnly || pendingEdits > 0}
+              disabled={readOnly || pendingEdits > 0 || !items.data.total}
               onClick={async () => {
                 try {
                   const res = await approveAll.mutateAsync(id);
                   toast.success(`${res.approved_count} produtos foram aprovados no catálogo inteiro.`);
+                  if (res.skipped_count) toast.warning(`${res.skipped_count} itens precisam de revisão e não foram aprovados.`);
                   items.refetch();
                 } catch (e) {
                   toast.error(errorMessage(e));
@@ -112,12 +125,65 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
         </div>
       )}
 
+      {job.data.status === "FAILED" && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border p-4 text-sm">
+          <p className="flex-1">O arquivo já enviado pode ser processado novamente. As páginas concluídas e suas revisões serão preservadas.</p>
+          <Button
+            disabled={retry.isPending}
+            onClick={async () => {
+              try {
+                await retry.mutateAsync(id);
+                toast.success("Importação recolocada na fila. O progresso será atualizado aqui.");
+              } catch (e) {
+                toast.error(errorMessage(e));
+              }
+            }}
+          >
+            {retry.isPending ? "Retomando..." : "Tentar novamente sem reenviar"}
+          </Button>
+        </div>
+      )}
+
+      <div className="rounded-lg border p-4 space-y-2 text-sm" aria-live="polite">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="font-medium">Leitura das páginas do PDF</p>
+          <p>{totalPages != null ? `${processedPages} de ${totalPages} páginas processadas` : "Total de páginas ainda não identificado"}</p>
+        </div>
+        {totalPages != null && totalPages > 0 && (
+          <Progress value={Math.min(100, (processedPages / totalPages) * 100)} aria-label="Páginas processadas" />
+        )}
+        {job.data.last_progress_at && (
+          <p className="text-xs text-muted-foreground">Último progresso: {formatDate(job.data.last_progress_at)}</p>
+        )}
+      </div>
+
       {isProcessing && (
         <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/50 dark:text-blue-300">
           <UploadCloud className="h-5 w-5 animate-pulse shrink-0" />
-          <p>A extração multi-páginas do PDF está em andamento. Os resultados aparecerão automaticamente aqui em instantes.</p>
+          <p>{job.data.status === "UPLOADED" ? "O arquivo está na fila de processamento." : "O PDF está sendo lido página por página. O conteúdo salvo e os itens identificados aparecem abaixo conforme o processamento avança."}</p>
         </div>
       )}
+
+      <section className="rounded-lg border bg-card p-4 space-y-3" aria-labelledby="pdf-pages-title">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 id="pdf-pages-title" className="font-semibold">Conteúdo preservado do PDF</h3>
+          {pages.data && pages.data.total > 0 && (
+            <nav aria-label="Navegação entre páginas extraídas">
+              <Pagination offset={pageOffset} total={pages.data.total} pageSize={1} onChange={setPageOffset} />
+            </nav>
+          )}
+        </div>
+        <p className="text-sm text-muted-foreground">Consulte o texto, as imagens e os avisos de cada página, inclusive quando nenhum produto foi identificado.</p>
+        {pages.isError ? (
+          <QueryError error={pages.error} retry={() => { pages.refetch(); }} />
+        ) : pages.isPending ? (
+          <p className="text-sm text-muted-foreground">Carregando páginas...</p>
+        ) : pages.data.items.length ? (
+          pages.data.items.map((page) => <ExtractedPage key={page.id} page={page} />)
+        ) : (
+          <p className="text-sm text-muted-foreground">Nenhuma página preservada disponível{isProcessing ? " ainda. A lista será atualizada durante a leitura." : "."}</p>
+        )}
+      </section>
 
       {isImported && (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/50 dark:text-emerald-300">
@@ -129,7 +195,7 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
       {job.data.status === "REVIEW_REQUIRED" && (
         <div className="flex items-center justify-between bg-muted/40 p-3 rounded-lg border text-sm text-muted-foreground">
           <p>
-            Dica: você pode aprovar todo o catálogo de uma vez pelo botão acima, ou aprovar/editar item por item abaixo.
+            Revise os dados antes de cadastrar. Corrija os itens incompletos ou marque como Ignorar aqueles que não devem entrar no cadastro.
           </p>
           <Button
             size="sm"
@@ -139,11 +205,11 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
               setBusy(true);
               try {
                 for (const item of items.data.items) {
-                  if (item.status === "DETECTED" && !item.is_out_of_stock) {
+                  if (item.status === "DETECTED" && !item.is_out_of_stock && item.normalized_code && item.normalized_name) {
                     await update.mutateAsync({ itemId: item.id, data: { status: "APPROVED" } });
                   }
                 }
-                toast.success("Aprovações desta página salvas.");
+                  toast.success("Aprovações do lote exibido salvas.");
               } catch (e) {
                 toast.error(errorMessage(e));
               } finally {
@@ -151,18 +217,19 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
               }
             }}
           >
-            Aprovar apenas esta página
+            Aprovar os itens exibidos
           </Button>
         </div>
       )}
 
       {!items.data.items.length && job.data.status === "REVIEW_REQUIRED" && (
         <div className="text-center py-12 border rounded-lg bg-card">
-          <p className="text-muted-foreground">Nenhum item detectado neste arquivo.</p>
+          <p className="text-muted-foreground">Nenhum produto identificado neste lote. Consulte o conteúdo preservado das páginas acima.</p>
         </div>
       )}
 
       <div className="space-y-3">
+        {!!items.data.total && <h3 className="font-semibold">Produtos identificados para revisão</h3>}
         {items.data.items.map((item) => (
           <Item key={`${item.id}:${item.updated_at}`} item={item} readOnly={readOnly} />
         ))}
@@ -188,6 +255,64 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
           </Button>
         )}
       </div>
+    </div>
+  );
+}
+
+function ExtractedPage({ page }: { page: ImportPage }) {
+  const pageStatus = {
+    EXTRACTED: "Conteúdo extraído",
+    NEEDS_REVIEW: "Conteúdo precisa de revisão",
+    EMPTY: "Sem conteúdo extraído",
+    FAILED: "Falha nesta página",
+  }[page.status] || page.status;
+
+  return (
+    <div className="space-y-3 border-t pt-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+        <h4 className="font-semibold">Página {page.page_number}</h4>
+        <span>{pageStatus}</span>
+        <span className="text-muted-foreground">{page.product_count} produtos identificados</span>
+      </div>
+      {page.error_message && <p role="alert" className="text-sm text-destructive">{page.error_message}</p>}
+      {!!page.warnings?.length && (
+        <ul className="list-disc space-y-1 rounded-lg border border-amber-200 bg-amber-50 py-2 pl-7 pr-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          {page.warnings.map((warning, index) => <li key={index}>{warning}</li>)}
+        </ul>
+      )}
+      {page.product_count === 0 && (
+        <p className="text-sm text-muted-foreground">Esta página não gerou produtos. O conteúdo disponível permanece abaixo para consulta.</p>
+      )}
+      <details className="rounded border p-3" open>
+        <summary className="cursor-pointer text-sm font-medium">Texto extraído da página</summary>
+        {page.raw_text?.trim() ? (
+          <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-3 text-xs leading-relaxed">{page.raw_text}</pre>
+        ) : (
+          <p className="mt-3 text-sm text-muted-foreground">Nenhum texto foi extraído desta página.</p>
+        )}
+      </details>
+      {!!page.text_blocks?.length && (
+        <details className="rounded border p-3">
+          <summary className="cursor-pointer text-sm font-medium">Blocos de texto e posições ({page.text_blocks.length})</summary>
+          <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-3 text-xs">{JSON.stringify(page.text_blocks, null, 2)}</pre>
+        </details>
+      )}
+      {!!page.image_paths?.length && (
+        <details className="rounded border p-3">
+          <summary className="cursor-pointer text-sm font-medium">Imagens preservadas ({page.image_paths.length})</summary>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {page.image_paths.map((path, index) => {
+              const url = `/api/v1/storage/${path.split("/").map(encodeURIComponent).join("/")}`;
+              return (
+                <a key={`${path}:${index}`} href={url} target="_blank" rel="noopener noreferrer" className="rounded border p-2 hover:bg-muted/40">
+                  <Image src={url} width={320} height={320} alt={`Imagem ${index + 1} extraída da página ${page.page_number}`} unoptimized className="max-h-64 w-full object-contain" />
+                  <span className="mt-2 block text-xs text-muted-foreground">Abrir imagem {index + 1}</span>
+                </a>
+              );
+            })}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
@@ -221,6 +346,7 @@ function Item({ item, readOnly }: { item: ImportItem; readOnly: boolean }) {
   });
 
   const disabled = readOnly || pendingEdits > 0 || update.isPending || item.status === "IMPORTED";
+  const sourcePage = item.raw_data?.page_number;
 
   const statusBadge = {
     APPROVED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300",
@@ -250,6 +376,7 @@ function Item({ item, readOnly }: { item: ImportItem; readOnly: boolean }) {
               Esgotado no catálogo
             </span>
           )}
+          {typeof sourcePage === "number" && <span className="text-xs text-muted-foreground">Página {sourcePage} do PDF</span>}
         </div>
         <div className="flex gap-1.5">
           {(["APPROVED", "IGNORED", "DETECTED"] as const).map((status) => (
@@ -326,6 +453,7 @@ function Item({ item, readOnly }: { item: ImportItem; readOnly: boolean }) {
           ))}
         </div>
       )}
+      {item.error_message && <p role="alert" className="text-sm text-destructive">{item.error_message}</p>}
     </div>
   );
 }
