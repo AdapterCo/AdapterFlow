@@ -27,6 +27,26 @@ Volumes existentes devem permitir leitura/escrita pelo UID 1001 do novo containe
 
 ## Falhas
 
+Se o backend parar no Alembic com `socket.gaierror: Name or service not known`,
+o endereço do banco não foi resolvido. Uma causa possível era a interpolação direta
+da senha na `DATABASE_URL` do Compose: `@` podia alterar o host interpretado.
+O Compose agora envia host, porta e credenciais separadamente; backend, worker e
+Alembic usam `URL.create` do SQLAlchemy, preservando a senha original.
+Não altere a senha do banco existente para contornar esse erro.
+Em desenvolvimento/CI, `DATABASE_URL` continua disponível quando `DATABASE_HOST`
+não está definido; nessa URL textual, credenciais devem estar codificadas para URL.
+No `.env` do Compose, coloque valores que contenham `$` entre aspas simples para
+preservá-los literalmente.
+
+Após atualizar o código, execute `docker compose up -d --build backend worker adapterflow-web`.
+Se a falha de resolução persistir, teste o DNS da rede interna sem mostrar credenciais:
+
+```bash
+docker compose run --rm --no-deps backend python -c "import socket; socket.getaddrinfo('db', 5432); print('DNS db OK')"
+```
+
+Fonte: [SQLAlchemy — criação de URLs](https://docs.sqlalchemy.org/en/20/core/engines.html#creating-urls-programmatically).
+
 Extração tem timeout de 300 segundos; o worker Docker limita memória/CPU. Jobs abandonados em PROCESSING por dez minutos tornam-se FAILED; reenviar cria nova fonte imutável. O subprocesso não recebe credenciais e usa diretório temporário, mas não é um sandbox completo de sistema operacional.
 
 UNKNOWN/IN_PROGRESS bloqueiam nova publicação do mesmo produto/conta. Confira a conta e informe o ID externo verdadeiro em Publicações para reconciliar; o backend verifica vendedor. Se nenhum anúncio existir, liberar tentativa exige investigação operacional: não há botão que presume ausência externa.

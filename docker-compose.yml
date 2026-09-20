@@ -32,7 +32,11 @@ services:
       MERCADOLIVRE_CLIENT_SECRET: ${MERCADOLIVRE_CLIENT_SECRET:-}
       MERCADOLIVRE_REDIRECT_URI: ${MERCADOLIVRE_REDIRECT_URI:-}
       OCR_ENABLED: ${OCR_ENABLED:-false}
-      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-adapterflow}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}@db:5432/${POSTGRES_DB:-adapterflow}"
+      DATABASE_HOST: db
+      DATABASE_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-adapterflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: ${POSTGRES_DB:-adapterflow}
       STORAGE_PATH: /app/storage
       BACKEND_CORS_ORIGINS: '["https://${DOMAIN:?Defina DOMAIN}"]'
     healthcheck:

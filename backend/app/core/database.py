@@ -18,7 +18,7 @@ class Base(DeclarativeBase):
     metadata = metadata
     __mapper_args__ = {"eager_defaults": True}
 
-engine = create_async_engine(settings.DATABASE_URL, echo=False, hide_parameters=True, pool_pre_ping=True)
+engine = create_async_engine(settings.database_connection_url(), echo=False, hide_parameters=True, pool_pre_ping=True)
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

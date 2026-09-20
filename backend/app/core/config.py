@@ -1,8 +1,27 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import SecretStr
+from sqlalchemy.engine import URL, make_url
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://localhost/adapterflow"
+    DATABASE_HOST: str | None = None
+    DATABASE_PORT: int = 5432
+    POSTGRES_USER: str | None = None
+    POSTGRES_PASSWORD: SecretStr | None = None
+    POSTGRES_DB: str | None = None
+
+    def database_connection_url(self) -> URL:
+        # Compose passes components separately: never parse a raw password as URL syntax.
+        if self.DATABASE_HOST is not None:
+            if not self.DATABASE_HOST or not self.POSTGRES_USER or not self.POSTGRES_PASSWORD or not self.POSTGRES_DB:
+                raise ValueError("Configuração PostgreSQL incompleta: confira host, usuário, senha e banco.")
+            return URL.create(
+                "postgresql+asyncpg", username=self.POSTGRES_USER,
+                password=self.POSTGRES_PASSWORD.get_secret_value(),
+                host=self.DATABASE_HOST, port=self.DATABASE_PORT, database=self.POSTGRES_DB,
+            )
+        return make_url(self.DATABASE_URL)
+
     ADMIN_USERNAME: str | None = None
     ADMIN_PASSWORD: SecretStr | None = None
     TOKEN_ENCRYPTION_KEY: SecretStr | None = None
