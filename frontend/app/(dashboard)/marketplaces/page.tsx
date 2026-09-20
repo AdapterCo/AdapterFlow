@@ -1,21 +1,310 @@
 "use client";
+
 import { useState } from "react";
+import Link from "next/link";
 import { useMarketplacesOverview, useDisconnectAccount } from "@/hooks/use-marketplaces";
 import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { QueryError } from "@/components/data-state";
 import { apiClient } from "@/lib/api";
 import { formatDate, errorMessage } from "@/lib/utils";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import type { components } from "@/types/api.generated";
+import {
+  Store,
+  CheckCircle2,
+  RefreshCw,
+  ExternalLink,
+  PlusCircle,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  ShoppingBag,
+  Send,
+  Unlink
+} from "lucide-react";
+
 export default function MarketplacesPage() {
-  const query = useMarketplacesOverview(); const disconnect = useDisconnectAccount(); const [connecting, setConnecting] = useState(false);
-  const configuration = useQuery({ queryKey: ["mercadolivre-configuration"], queryFn: () => apiClient.get<components["schemas"]["MercadoLivreConfigurationResponse"]>("/api/v1/marketplaces/mercadolivre/configuration") });
-  return <div className="space-y-4"><h2 className="text-2xl font-bold">Marketplaces</h2><Button disabled={query.isFetching} onClick={() => query.refetch()}>Verificar conexões</Button>
-    {configuration.isError && <QueryError error={configuration.error} retry={() => configuration.refetch()} />}
-    {configuration.data && <div className="rounded border p-4 space-y-2"><h3>Conectar conta do Mercado Livre</h3><p>Aplicação configurada: {configuration.data.app_id || "Não informada"}</p><p className="break-all">Retorno: {configuration.data.redirect_uri || "Não informado"}</p>{configuration.data.issues.map(issue => <p key={issue} className="text-destructive">{issue}</p>)}<p>A autorização deve começar neste botão, neste navegador. A permissão no painel do Mercado Livre, sozinha, não conclui a conexão aqui.</p><Button disabled={connecting || !configuration.data.ready} onClick={async () => { setConnecting(true); try { const result = await apiClient.get<{ auth_url: string }>("/api/v1/marketplaces/mercadolivre/auth-url"); window.location.assign(result.auth_url); } catch (e) { toast.error(errorMessage(e)); setConnecting(false); } }}>Autorizar conta</Button></div>}
-    {query.isLoading && <p>Verificando contas no Mercado Livre…</p>}{query.isError && <QueryError error={query.error} retry={() => query.refetch()} />}
-    {query.data?.channels.map(channel => <div className="rounded border p-4 space-y-2" key={channel.marketplace}><h3>{channel.name}</h3><p>{channel.marketplace !== "MERCADO_LIVRE" ? "Não implementado" : channel.is_connected ? "Conexão verificada nesta consulta" : channel.is_configured ? "Configurado; nenhuma conexão verificada" : "Configuração do servidor pendente"}</p></div>)}
-    {query.data && !query.data.accounts.length && <p>Nenhuma conta cadastrada.</p>}{query.data?.accounts.map(account => <div className="border p-4" key={account.id}><h3>{account.account_name}</h3><p>{!account.is_active ? "Desconectada" : account.connection_error || `Verificada em ${formatDate(account.verified_at)}`}</p><Button disabled={!account.is_active || disconnect.isPending} variant="outline" onClick={async () => { if (!confirm("Desconectar localmente? O histórico será preservado e os anúncios externos continuarão existindo.")) return; try { await disconnect.mutateAsync(account.id); toast.success("Conta desconectada localmente."); } catch (e) { toast.error(errorMessage(e)); } }}>Desconectar</Button></div>)}
-  </div>;
+  const query = useMarketplacesOverview();
+  const disconnect = useDisconnectAccount();
+  const [connecting, setConnecting] = useState(false);
+  const [showConfigDetails, setShowConfigDetails] = useState(false);
+
+  const configuration = useQuery({
+    queryKey: ["mercadolivre-configuration"],
+    queryFn: () =>
+      apiClient.get<components["schemas"]["MercadoLivreConfigurationResponse"]>(
+        "/api/v1/marketplaces/mercadolivre/configuration"
+      ),
+  });
+
+  const meliAccounts =
+    query.data?.accounts.filter((acc) => acc.marketplace === "MERCADO_LIVRE" && acc.is_active) || [];
+  const hasConnectedAccount = meliAccounts.length > 0;
+
+  const handleAuthorize = async () => {
+    setConnecting(true);
+    try {
+      const result = await apiClient.get<{ auth_url: string }>(
+        "/api/v1/marketplaces/mercadolivre/auth-url"
+      );
+      window.location.assign(result.auth_url);
+    } catch (e) {
+      toast.error(errorMessage(e));
+      setConnecting(false);
+    }
+  };
+
+  const handleDisconnect = async (accountId: string, accountName: string) => {
+    if (
+      !confirm(
+        `Desconectar a conta "${accountName}" localmente? O histórico será preservado e os anúncios continuarão existindo no Mercado Livre.`
+      )
+    ) {
+      return;
+    }
+    try {
+      await disconnect.mutateAsync(accountId);
+      toast.success(`Conta "${accountName}" desconectada localmente.`);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* Top Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Marketplaces & Integrações</h2>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Gerencie suas contas conectadas e canais de venda para publicação multicanal.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={query.isFetching}
+          onClick={() => {
+            query.refetch();
+            toast.info("Verificando status das contas...");
+          }}
+          className="self-start sm:self-auto"
+        >
+          <RefreshCw className={`mr-2 h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />
+          Verificar Conexões
+        </Button>
+      </div>
+
+      {query.isError && <QueryError error={query.error} retry={() => query.refetch()} />}
+
+      {/* Seção Canal Mercado Livre */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold flex items-center gap-2">
+            <Store className="h-5 w-5 text-amber-500" />
+            Canal Mercado Livre
+          </h3>
+          {hasConnectedAccount && (
+            <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Conectado
+            </Badge>
+          )}
+        </div>
+
+        {hasConnectedAccount ? (
+          /* Card de Contas Conectadas */
+          <div className="grid gap-4">
+            {meliAccounts.map((account) => (
+              <Card key={account.id} className="border-emerald-200 bg-emerald-50/20 dark:bg-emerald-950/10">
+                <CardHeader className="pb-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                      <CardTitle className="text-xl flex items-center gap-2">
+                        <span>{account.account_name}</span>
+                        <Badge variant="outline" className="text-emerald-700 border-emerald-300">
+                          {account.site_id || "MLB"}
+                        </Badge>
+                      </CardTitle>
+                      <CardDescription className="mt-1">
+                        Seller ID: <span className="font-mono">{account.seller_id}</span>
+                        {account.verified_at && (
+                          <> · Verificado em: {formatDate(account.verified_at)}</>
+                        )}
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button asChild size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                        <Link href="/publications">
+                          <Send className="mr-2 h-4 w-4" />
+                          Ver Publicações
+                        </Link>
+                      </Button>
+                      <Button asChild size="sm" variant="outline">
+                        <Link href="/products">
+                          <ShoppingBag className="mr-2 h-4 w-4" />
+                          Publicar Produtos
+                        </Link>
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        disabled={disconnect.isPending}
+                        onClick={() => handleDisconnect(account.id, account.account_name)}
+                        title="Desconectar conta"
+                      >
+                        <Unlink className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+
+                {account.connection_error && (
+                  <CardContent className="pt-0 pb-3">
+                    <div className="rounded-md bg-rose-50 border border-rose-200 p-3 text-sm text-rose-700 flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      <span>{account.connection_error}</span>
+                    </div>
+                  </CardContent>
+                )}
+              </Card>
+            ))}
+
+            {/* Opção secundária e discreta para conectar outra conta ou ver config */}
+            <div className="flex flex-wrap items-center justify-between text-xs text-muted-foreground pt-1 px-1">
+              <span>Sua conta já está apta para publicar e validar anúncios no Mercado Livre.</span>
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setShowConfigDetails(!showConfigDetails)}
+                >
+                  {showConfigDetails ? <ChevronUp className="h-3 w-3 mr-1" /> : <ChevronDown className="h-3 w-3 mr-1" />}
+                  {showConfigDetails ? "Ocultar detalhes técnicos" : "Ver dados da aplicação"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  disabled={connecting}
+                  onClick={handleAuthorize}
+                >
+                  <PlusCircle className="h-3 w-3 mr-1" />
+                  Conectar outra conta
+                </Button>
+              </div>
+            </div>
+
+            {/* Detalhes de Configuração Técnicos (Recolhível) */}
+            {showConfigDetails && configuration.data && (
+              <div className="rounded-lg border bg-muted/30 p-4 text-xs space-y-2 text-muted-foreground">
+                <p className="font-semibold text-foreground">Configuração da Aplicação Mercado Livre:</p>
+                <p>App ID: <span className="font-mono">{configuration.data.app_id || "Não informado"}</span></p>
+                <p className="break-all">Redirect URI: <span className="font-mono">{configuration.data.redirect_uri || "Não informado"}</span></p>
+                {configuration.data.issues.map((issue) => (
+                  <p key={issue} className="text-destructive font-medium">{issue}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Card de Conexão quando NÃO tem conta vinculada */
+          <Card className="border-dashed border-2">
+            <CardHeader>
+              <CardTitle className="text-lg">Conectar sua conta do Mercado Livre</CardTitle>
+              <CardDescription>
+                Vincule sua conta de vendedor para publicar anúncios automáticos e sincronizar preços.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {configuration.isError && (
+                <QueryError error={configuration.error} retry={() => configuration.refetch()} />
+              )}
+              {configuration.data && configuration.data.issues.length > 0 && (
+                <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800 space-y-1">
+                  {configuration.data.issues.map((issue) => (
+                    <p key={issue}>• {issue}</p>
+                  ))}
+                </div>
+              )}
+              <p className="text-sm text-muted-foreground">
+                A autorização é feita diretamente no site seguro do Mercado Livre via OAuth 2.0.
+              </p>
+            </CardContent>
+            <CardFooter className="flex justify-between items-center">
+              <Button
+                disabled={connecting || (configuration.data && !configuration.data.ready)}
+                onClick={handleAuthorize}
+                className="bg-amber-500 hover:bg-amber-600 text-black font-semibold"
+              >
+                <ExternalLink className="mr-2 h-4 w-4" />
+                {connecting ? "Redirecionando..." : "Autorizar Conta no Mercado Livre"}
+              </Button>
+              {configuration.data && (
+                <span className="text-xs text-muted-foreground">
+                  App ID: {configuration.data.app_id || "Não configurado"}
+                </span>
+              )}
+            </CardFooter>
+          </Card>
+        )}
+      </div>
+
+      {/* Canais Futuros (Shopee, Amazon, TikTok) - Apresentação limpa e moderna */}
+      <div className="space-y-4 pt-4 border-t">
+        <h3 className="text-lg font-semibold text-muted-foreground">Outros Canais Multicanal</h3>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Card className="bg-muted/10 opacity-75">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base font-semibold">Shopee</CardTitle>
+                <Badge variant="outline" className="text-xs">Em breve</Badge>
+              </div>
+              <CardDescription className="text-xs mt-1">
+                Fase 4 do planejamento multicanal.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-xs text-muted-foreground">
+              Integração via Shopee Open Platform planejada para a próxima etapa.
+            </CardContent>
+          </Card>
+
+          <Card className="bg-muted/10 opacity-75">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base font-semibold">Amazon Brasil</CardTitle>
+                <Badge variant="outline" className="text-xs">Em breve</Badge>
+              </div>
+              <CardDescription className="text-xs mt-1">
+                Fase 5 do planejamento multicanal.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-xs text-muted-foreground">
+              Integração via Amazon Selling Partner API (SP-API).
+            </CardContent>
+          </Card>
+
+          <Card className="bg-muted/10 opacity-75">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base font-semibold">TikTok Shop</CardTitle>
+                <Badge variant="outline" className="text-xs">Em breve</Badge>
+              </div>
+              <CardDescription className="text-xs mt-1">
+                Fase 6 do planejamento multicanal.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-xs text-muted-foreground">
+              Integração para catálogo e social commerce.
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
 }
