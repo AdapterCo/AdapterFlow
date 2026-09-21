@@ -84,3 +84,33 @@ export interface PublishShopeeProductRequest {
   description?: string | null;
   attributes?: Record<string, any>[] | null;
 }
+
+export interface ClonePreviewRequest {
+  url_or_id: string;
+}
+
+export interface ClonePreviewResponse {
+  mlb_id: string;
+  name: string;
+  price?: number | null;
+  original_price?: number | null;
+  brand?: string | null;
+  model?: string | null;
+  ean?: string | null;
+  gtin?: string | null;
+  color?: string | null;
+  dimensions?: string | null;
+  weight?: number | null;
+  category_id?: string | null;
+  pictures: string[];
+  description?: string | null;
+  permalink?: string | null;
+}
+
+export interface CloneProductRequest {
+  url_or_id: string;
+  supplier_id?: string | null;
+  cost_price?: number | null;
+  status?: "ACTIVE" | "DRAFT";
+}
+

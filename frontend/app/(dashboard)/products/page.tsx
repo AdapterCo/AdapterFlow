@@ -27,13 +27,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, Loader2, Image as ImageIcon, AlertCircle, RefreshCw } from "lucide-react";
+import { Search, Loader2, Image as ImageIcon, AlertCircle, RefreshCw, Sparkles } from "lucide-react";
+import { CloneProductDialog } from "@/components/products/clone-product-dialog";
 
 export default function ProductsPage() {
   const router = useRouter();
   const [offset, setOffset] = useState(0);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Status | "">("");
+  const [cloneOpen, setCloneOpen] = useState(false);
 
   const debouncedSearch = useDebounce(search, 350);
   const { data, isLoading, isError, error, refetch } = useProducts(offset, 50, debouncedSearch, statusFilter);
@@ -53,8 +55,20 @@ export default function ProductsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Produtos</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Produtos</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Gerencie seu catálogo, custos e publicação multicanal.
+          </p>
+        </div>
+        <Button
+          onClick={() => setCloneOpen(true)}
+          className="bg-amber-500 hover:bg-amber-600 text-black font-semibold shadow-sm self-start sm:self-auto"
+        >
+          <Sparkles className="h-4 w-4 mr-2 text-black" />
+          Clonar Anúncio (Link ML)
+        </Button>
       </div>
 
       <div className="flex items-center gap-4">
@@ -162,6 +176,7 @@ export default function ProductsPage() {
         </Table>
       </div>
       {data && <Pagination offset={offset} total={data.total} onChange={setOffset} />}
+      <CloneProductDialog open={cloneOpen} onOpenChange={setCloneOpen} />
     </div>
   );
 }

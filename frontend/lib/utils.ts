@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatCurrency(value: string | null | undefined): string {
+export function formatCurrency(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") return "—";
   try {
     const decimal = new Decimal(value);

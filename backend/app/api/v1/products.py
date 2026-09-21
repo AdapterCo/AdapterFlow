@@ -2,16 +2,31 @@ from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 from uuid import UUID
 from app.schemas.product import ProductListResponse, ProductWithDetailsResponse, ProductUpdate, SupplierLinkUpdate
+from app.schemas.clone import ClonePreviewRequest, ClonePreviewResponse, CloneProductRequest
 from app.services.product_service import ProductService
+from app.services.clone_service import CloneService
 from app.api.deps import DBSession
 
 router = APIRouter()
 service = ProductService()
+clone_service = CloneService()
 
 @router.get("", response_model=ProductListResponse)
 @router.get("/", response_model=ProductListResponse, include_in_schema=False)
 async def list_products(db: DBSession, skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), search: Optional[str] = None, status: Optional[str] = None):
     return await service.list_products(db, skip, limit, search, status)
+
+
+@router.post("/clone/preview", response_model=ClonePreviewResponse)
+async def preview_clone_product(data: ClonePreviewRequest):
+    """Extrai informações públicas de um anúncio do Mercado Livre para pré-visualização."""
+    return await clone_service.preview(data.url_or_id)
+
+
+@router.post("/clone", response_model=ProductWithDetailsResponse, status_code=201)
+async def clone_product_from_ml(data: CloneProductRequest, db: DBSession):
+    """Clona um anúncio do Mercado Livre, baixando fotos e criando o produto no AdapterFlow."""
+    return await clone_service.clone_product(db, data)
 
 @router.get("/{id}", response_model=ProductWithDetailsResponse)
 async def get_product(id: UUID, db: DBSession):

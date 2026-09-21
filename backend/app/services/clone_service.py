@@ -1,0 +1,218 @@
+import io
+import re
+import uuid
+from decimal import Decimal
+from typing import Tuple
+from pathlib import Path
+import httpx
+from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.models.product import Product, ProductSupplierData, SupplierProductPrice
+from app.models.product_image import ProductImage
+from app.repositories.product_repository import ProductRepository
+from app.schemas.clone import ClonePreviewResponse, CloneProductRequest
+from app.storage.service import StorageService
+
+
+def parse_mlb_id(url_or_id: str) -> str:
+    """Extract and normalize MLB identifier from any Mercado Livre link or code."""
+    cleaned = url_or_id.strip()
+    match = re.search(r"(MLB)[\s\-_]?([0-9]+)", cleaned, re.IGNORECASE)
+    if not match:
+        raise HTTPException(
+            422,
+            "Link ou identificador do Mercado Livre inválido. "
+            "Forneça uma URL como https://produto.mercadolivre.com.br/MLB-... ou o código MLB."
+        )
+    return f"MLB{match.group(2)}"
+
+
+class CloneService:
+    def __init__(self):
+        self.product_repo = ProductRepository()
+        self.storage = StorageService(settings.STORAGE_PATH)
+
+    async def _fetch_ml_data(self, mlb_id: str) -> Tuple[dict, str]:
+        """Fetch item and description from official Mercado Livre public API."""
+        async with httpx.AsyncClient(timeout=20) as client:
+            try:
+                item_res = await client.get(f"https://api.mercadolibre.com/items/{mlb_id}")
+            except Exception as e:
+                raise HTTPException(502, f"Falha de rede ao consultar Mercado Livre: {str(e)}")
+
+            if item_res.status_code == 404:
+                raise HTTPException(404, f"Anúncio '{mlb_id}' não encontrado no Mercado Livre.")
+            if item_res.status_code != 200:
+                raise HTTPException(502, f"Mercado Livre retornou status HTTP {item_res.status_code}.")
+
+            item = item_res.json()
+
+            # Attempt fetching plain text description
+            description_text = ""
+            try:
+                desc_res = await client.get(f"https://api.mercadolibre.com/items/{mlb_id}/description")
+                if desc_res.status_code == 200:
+                    desc_json = desc_res.json()
+                    description_text = (desc_json.get("plain_text") or desc_json.get("text") or "").strip()
+            except Exception:
+                pass
+
+            return item, description_text
+
+    def _extract_attributes(self, item: dict, description: str, mlb_id: str) -> dict:
+        """Extract structured product fields from Mercado Livre item payload."""
+        attrs = {a.get("id"): a.get("value_name") for a in item.get("attributes", []) if a.get("id")}
+
+        brand = attrs.get("BRAND") or attrs.get("MARCA")
+        model = attrs.get("MODEL") or attrs.get("MODELO")
+        ean = attrs.get("GTIN") or attrs.get("EAN")
+        gtin = attrs.get("GTIN") or ean
+        color = attrs.get("COLOR") or attrs.get("COR")
+
+        # Dimensions / weight
+        dimensions_parts = []
+        for key, label in [("PACKAGE_LENGTH", "C"), ("PACKAGE_WIDTH", "L"), ("PACKAGE_HEIGHT", "A")]:
+            if attrs.get(key):
+                dimensions_parts.append(f"{label}: {attrs[key]}")
+        dimensions = " x ".join(dimensions_parts) if dimensions_parts else attrs.get("DIMENSIONS")
+
+        weight = None
+        raw_weight = attrs.get("PACKAGE_WEIGHT") or attrs.get("WEIGHT")
+        if raw_weight:
+            match = re.search(r"([0-9]+(?:[\.,][0-9]+)?)", raw_weight)
+            if match:
+                try:
+                    weight = Decimal(match.group(1).replace(",", "."))
+                    if "g" in raw_weight.lower() and "k" not in raw_weight.lower():
+                        weight = weight / Decimal("1000")  # convert grams to kg
+                except Exception:
+                    weight = None
+
+        # Pictures (highest resolution available)
+        pictures = []
+        for pic in item.get("pictures", []):
+            url = pic.get("secure_url") or pic.get("url")
+            if url:
+                pictures.append(url)
+
+        price = None
+        if item.get("price") is not None:
+            try:
+                price = Decimal(str(item["price"]))
+            except Exception:
+                pass
+
+        original_price = None
+        if item.get("original_price") is not None:
+            try:
+                original_price = Decimal(str(item["original_price"]))
+            except Exception:
+                pass
+
+        return {
+            "mlb_id": mlb_id,
+            "name": item.get("title", "").strip()[:500],
+            "price": price,
+            "original_price": original_price,
+            "brand": brand[:255] if brand else None,
+            "model": model[:255] if model else None,
+            "ean": ean[:20] if ean else None,
+            "gtin": gtin[:20] if gtin else None,
+            "color": color[:100] if color else None,
+            "dimensions": dimensions[:255] if dimensions else None,
+            "weight": weight,
+            "category_id": item.get("category_id"),
+            "pictures": pictures,
+            "description": description or None,
+            "permalink": item.get("permalink"),
+        }
+
+    async def preview(self, url_or_id: str) -> ClonePreviewResponse:
+        """Parse link and return preview of Mercado Livre listing."""
+        mlb_id = parse_mlb_id(url_or_id)
+        item, description = await self._fetch_ml_data(mlb_id)
+        extracted = self._extract_attributes(item, description, mlb_id)
+        return ClonePreviewResponse(**extracted)
+
+    async def clone_product(self, session: AsyncSession, request: CloneProductRequest) -> Product:
+        """Download pictures and persist new Product from Mercado Livre listing."""
+        mlb_id = parse_mlb_id(request.url_or_id)
+        item, description = await self._fetch_ml_data(mlb_id)
+        extracted = self._extract_attributes(item, description, mlb_id)
+
+        # 1. Create Product
+        product_id = uuid.uuid4()
+        sku_candidate = f"ML-{mlb_id.replace('MLB', '')}"
+
+        product = Product(
+            id=product_id,
+            name=extracted["name"] or f"Produto Clonado {mlb_id}",
+            sku=sku_candidate,
+            brand=extracted["brand"],
+            model=extracted["model"],
+            ean=extracted["ean"],
+            gtin=extracted["gtin"],
+            color=extracted["color"],
+            dimensions=extracted["dimensions"],
+            weight=extracted["weight"],
+            description=extracted["description"],
+            status=request.status,
+        )
+        session.add(product)
+        await session.flush()
+
+        # 2. Download and persist pictures to local StorageService
+        pictures = extracted.get("pictures", [])[:8]  # up to 8 images
+        async with httpx.AsyncClient(timeout=30) as client:
+            for idx, pic_url in enumerate(pictures):
+                try:
+                    res = await client.get(pic_url)
+                    if res.status_code == 200 and res.content:
+                        filename = f"img_{idx+1}_{Path(pic_url).name.split('?')[0]}"
+                        if not filename.endswith((".jpg", ".jpeg", ".png", ".webp")):
+                            filename += ".jpg"
+                        rel_path = f"products/{product.id}/{filename}"
+                        self.storage.save(rel_path, res.content)
+
+                        img_record = ProductImage(
+                            product_id=product.id,
+                            storage_path=rel_path,
+                            original_filename=filename,
+                            mime_type=res.headers.get("content-type", "image/jpeg"),
+                            size_bytes=len(res.content),
+                            position=idx,
+                            source="ML_CLONE",
+                        )
+                        session.add(img_record)
+                except Exception:
+                    # Non-fatal if a single photo fails download
+                    pass
+
+        # 3. Optional supplier and cost linking
+        if request.supplier_id:
+            supplier_code = f"ML-{mlb_id}"
+            supplier_data = ProductSupplierData(
+                product_id=product.id,
+                supplier_id=request.supplier_id,
+                supplier_code=supplier_code,
+                supplier_name=extracted["name"],
+                pcs_per_box=1,
+                current_cost=request.cost_price,
+                raw_cost_value=str(request.cost_price) if request.cost_price else None,
+                is_active=True,
+            )
+            session.add(supplier_data)
+            await session.flush()
+
+            if request.cost_price is not None:
+                price = SupplierProductPrice(
+                    product_supplier_data_id=supplier_data.id,
+                    price=request.cost_price,
+                    raw_value=str(request.cost_price),
+                )
+                session.add(price)
+
+        await session.commit()
+        return await self.product_repo.get_with_details(session, product.id)

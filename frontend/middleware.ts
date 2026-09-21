@@ -7,8 +7,14 @@ async function equal(a: string, b: string) {
 }
 
 export async function middleware(request: NextRequest) {
-  // Only the provider's notification POST is public; all other routes keep Basic auth.
-  if (request.method === "POST" && request.nextUrl.pathname === "/api/v1/marketplaces/mercadolivre/notifications") {
+  const pathname = request.nextUrl.pathname;
+  // Rotas públicas: telas de autenticação e webhook de notificações
+  if (
+    pathname === "/login" ||
+    pathname === "/register" ||
+    pathname.startsWith("/api/v1/auth") ||
+    (request.method === "POST" && pathname === "/api/v1/marketplaces/mercadolivre/notifications")
+  ) {
     return NextResponse.next();
   }
   const username = process.env.ADMIN_USERNAME;
