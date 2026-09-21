@@ -1,6 +1,7 @@
 "use client";
 import { use, useState } from "react";
-import { useIsMutating } from "@tanstack/react-query";
+import { useIsMutating, useQueryClient } from "@tanstack/react-query";
+import { apiClient } from "@/lib/api";
 import Image from "next/image";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -25,6 +26,9 @@ import { toast } from "sonner";
 import { CheckCircle2, CheckCheck, UploadCloud, AlertCircle } from "lucide-react";
 
 const editSchema = z.object({
+  normalized_dimensions: z.string().max(255),
+  normalized_color: z.string().max(100),
+  normalized_pcs_per_box: z.string().regex(/^$|^[1-9]\d*$/, "Quantidade inteira positiva."),
   normalized_name: z.string().trim().min(1, "Nome é obrigatório"),
   normalized_code: z.string().trim().min(1, "Código é obrigatório"),
   normalized_price: z.string().regex(/^$|^\d+(\.\d{1,4})?$/, "Use decimal com ponto, até quatro casas."),
@@ -59,7 +63,7 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
 
   const isProcessing = ["UPLOADED", "PROCESSING"].includes(job.data.status);
   const isImported = job.data.status === "IMPORTED";
-  const readOnly = isProcessing || busy || confirm.isPending || approveAll.isPending;
+  const readOnly = !["REVIEW_REQUIRED", "IMPORTED"].includes(job.data.status) || busy || confirm.isPending || approveAll.isPending;
   const totalPages = job.data.total_pages;
   const processedPages = job.data.processed_pages ?? 0;
 
@@ -179,7 +183,7 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
         ) : pages.isPending ? (
           <p className="text-sm text-muted-foreground">Carregando páginas...</p>
         ) : pages.data.items.length ? (
-          pages.data.items.map((page) => <ExtractedPage key={page.id} page={page} />)
+          pages.data.items.map((page) => <ExtractedPage key={page.id} page={page} readOnly={readOnly} />)
         ) : (
           <p className="text-sm text-muted-foreground">Nenhuma página preservada disponível{isProcessing ? " ainda. A lista será atualizada durante a leitura." : "."}</p>
         )}
@@ -261,7 +265,19 @@ export default function Review({ params }: { params: Promise<{ id: string }> }) 
   );
 }
 
-function ExtractedPage({ page }: { page: ImportPage }) {
+function ExtractedPage({ page, readOnly }: { page: ImportPage; readOnly: boolean }) {
+  const cache = useQueryClient();
+  const [working, setWorking] = useState(false);
+  async function action(kind: string) {
+    setWorking(true);
+    try {
+      const path = `/api/v1/imports/${page.import_id}/pages/${page.page_number}`;
+      await apiClient.post(path + (kind === "manual" ? "/items" : `/retry?ocr=${kind === "ocr"}`), kind === "manual" ? {} : undefined);
+      await Promise.all(["import", "imports", "import-items", "import-pages"].map(key => cache.invalidateQueries({ queryKey: [key] })));
+      toast.success(kind === "manual" ? "Item criado para preenchimento e revisão na lista de produtos." : "Página enviada para releitura.");
+    } catch (error) { toast.error(errorMessage(error)); }
+    finally { setWorking(false); }
+  }
   const pageStatus = {
     EXTRACTED: "Conteúdo extraído",
     NEEDS_REVIEW: "Conteúdo precisa de revisão",
@@ -271,6 +287,11 @@ function ExtractedPage({ page }: { page: ImportPage }) {
 
   return (
     <div className="space-y-3 border-t pt-3">
+      <div className="flex flex-wrap gap-2">
+        <Button disabled={readOnly || working} variant="outline" onClick={() => action("retry")}>Reler página sem decisões</Button>
+        <Button disabled={readOnly || working} variant="outline" onClick={() => action("ocr")}>Reler página com OCR</Button>
+        <Button disabled={readOnly || working} variant="outline" onClick={() => action("manual")}>Adicionar produto desta página</Button>
+      </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <h4 className="font-semibold">Página {page.page_number}</h4>
         <span>{pageStatus}</span>
@@ -320,6 +341,7 @@ function ExtractedPage({ page }: { page: ImportPage }) {
 }
 
 function Item({ item, readOnly }: { item: ImportItem; readOnly: boolean }) {
+  const cache = useQueryClient();
   const pendingEdits = useIsMutating({ mutationKey: ["review-item"] });
   const update = useUpdateImportItem();
   const {
@@ -329,6 +351,9 @@ function Item({ item, readOnly }: { item: ImportItem; readOnly: boolean }) {
   } = useForm<z.infer<typeof editSchema>>({
     resolver: zodResolver(editSchema),
     defaultValues: {
+      normalized_dimensions: item.normalized_dimensions || "",
+      normalized_color: item.normalized_color || "",
+      normalized_pcs_per_box: item.normalized_pcs_per_box == null ? "" : String(item.normalized_pcs_per_box),
       normalized_name: item.normalized_name || item.raw_name || "",
       normalized_code: item.normalized_code || "",
       normalized_price: item.normalized_price != null ? String(item.normalized_price) : "",
@@ -339,7 +364,7 @@ function Item({ item, readOnly }: { item: ImportItem; readOnly: boolean }) {
     try {
       await update.mutateAsync({
         itemId: item.id,
-        data: { ...values, normalized_price: values.normalized_price || null },
+        data: { ...values, normalized_pcs_per_box: values.normalized_pcs_per_box ? Number(values.normalized_pcs_per_box) : null, normalized_color: values.normalized_color || null, normalized_dimensions: values.normalized_dimensions || null, normalized_price: values.normalized_price || null },
       });
       toast.success("Item atualizado.");
     } catch (e) {
@@ -381,6 +406,14 @@ function Item({ item, readOnly }: { item: ImportItem; readOnly: boolean }) {
           {typeof sourcePage === "number" && <span className="text-xs text-muted-foreground">Página {sourcePage} do PDF</span>}
         </div>
         <div className="flex gap-1.5">
+          {item.is_out_of_stock && <Button disabled={disabled} variant="outline" size="sm" onClick={async () => {
+            try {
+              await apiClient.post(`/api/v1/imports/${item.import_id}/items/${item.id}/unavailable`);
+              await cache.invalidateQueries({queryKey: ["import-items"]});
+              await cache.invalidateQueries({queryKey: ["import"]});
+              toast.success("Fornecedor marcado como indisponível para este produto.");
+            } catch (error) { toast.error(errorMessage(error)); }
+          }}>Atualizar disponibilidade</Button>}
           {(["APPROVED", "IGNORED", "DETECTED"] as const).map((status) => (
             <Button
               key={status}
@@ -433,6 +466,10 @@ function Item({ item, readOnly }: { item: ImportItem; readOnly: boolean }) {
             <span>Custo Unitário (R$)</span>
             <Input disabled={disabled} inputMode="decimal" {...register("normalized_price")} className="h-9" />
           </label>
+          <label className="text-xs">Cor<Input disabled={disabled} {...register("normalized_color")} /></label>
+          <label className="text-xs">Dimensões<Input disabled={disabled} {...register("normalized_dimensions")} /></label>
+          <label className="text-xs">Peças por caixa<Input disabled={disabled} inputMode="numeric" {...register("normalized_pcs_per_box")} /></label>
+          {errors.normalized_pcs_per_box && <p role="alert">{errors.normalized_pcs_per_box.message}</p>}
           {errors.normalized_name && <p className="text-xs text-red-500 sm:col-span-3">{errors.normalized_name.message}</p>}
           {errors.normalized_code && <p className="text-xs text-red-500 sm:col-span-3">{errors.normalized_code.message}</p>}
           {errors.normalized_price && <p className="text-xs text-red-500 sm:col-span-3">{errors.normalized_price.message}</p>}

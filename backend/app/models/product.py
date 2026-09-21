@@ -13,9 +13,12 @@ from typing import List
 
 class Product(Base):
     __tablename__ = "products"
+    __table_args__ = (UniqueConstraint("source_marketplace", "source_external_id", name="uq_products_external_source"),)
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     sku: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
+    source_marketplace: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    source_external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     name: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     brand: Mapped[str | None] = mapped_column(String(255), nullable=True)

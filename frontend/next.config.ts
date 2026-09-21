@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
   experimental: {
     // Multipart overhead must fit as well as the backend's 200 MiB file limit.
     middlewareClientMaxBodySize: "201mb",
-    proxyTimeout: 120000,
+    proxyTimeout: 600000,
   },
   async rewrites() {
     const backendUrl = process.env.INTERNAL_BACKEND_URL || "http://localhost:8000";

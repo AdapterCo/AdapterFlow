@@ -68,7 +68,7 @@ class ImportRepository:
         return instances
 
     async def get_items_by_job(self, session: AsyncSession, job_id: UUID) -> List[ImportItem]:
-        result = await session.execute(select(ImportItem).where(ImportItem.import_id == job_id))
+        result = await session.execute(select(ImportItem).where(ImportItem.import_id == job_id).order_by(ImportItem.created_at, ImportItem.id))
         return list(result.scalars().all())
 
     async def get_item(self, session: AsyncSession, id: UUID) -> ImportItem | None:

@@ -114,7 +114,7 @@ export const apiClient = {
       const baseUrl = getApiBaseUrl();
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `${baseUrl}${path}`);
-      xhr.timeout = 120000; // 2 minutes for large file uploads
+      xhr.timeout = 600000; // bounded large catalog upload
       
       if (onProgress && xhr.upload) {
         xhr.upload.onprogress = (event) => {

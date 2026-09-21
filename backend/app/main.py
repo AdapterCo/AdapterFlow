@@ -13,6 +13,9 @@ from app.api.v1.marketplace_notifications import router as notifications_router
 from app.api.v1.auth import router as auth_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+# Provider URLs may carry credentials in their query strings.
+logging.getLogger("httpx").setLevel(logging.CRITICAL)
+logging.getLogger("httpcore").setLevel(logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
 
@@ -23,6 +26,8 @@ async def lifespan(app: FastAPI):
     finally:
         from app.api.v1.marketplaces import service
         await service.client.close()
+        from app.api.v1.shopee import service as shopee_service
+        await shopee_service.client.close()
 
 
 app = FastAPI(

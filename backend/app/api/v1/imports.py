@@ -3,7 +3,6 @@ from fastapi.responses import StreamingResponse
 from uuid import UUID
 from typing import Optional
 import logging
-from app.core.config import settings
 from sqlalchemy import select, func
 from app.models.import_job import ImportItem
 
@@ -45,18 +44,10 @@ async def _handle_upload(
         raise HTTPException(status_code=404, detail="Fornecedor selecionado não foi encontrado no sistema.")
 
     try:
-        content = bytearray()
-        while chunk := await file.read(1024 * 1024):
-            content.extend(chunk)
-            if len(content) > settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
-                raise HTTPException(413, "Arquivo excede o limite configurado.")
-        if not content.startswith(b"%PDF-"):
+        if await file.read(5) != b"%PDF-":
             raise HTTPException(422, "Conteúdo não reconhecido como PDF.")
-        content = bytes(content)
-        if len(content) == 0:
-            raise HTTPException(status_code=400, detail="O arquivo enviado está vazio.")
-
-        job = await service.create_import(db, supplier_id, file.filename, content, storage)
+        await file.seek(0)
+        job = await service.create_import_stream(db, supplier_id, file.filename, file.file, storage)
 
         # The separate worker consumes the durable UPLOADED job.
 
@@ -118,6 +109,16 @@ async def get_import_source(id: UUID, db: DBSession, storage: Storage):
     })
 
 
+@router.post("/{id}/pages/{number}/retry", response_model=ImportJobResponse)
+async def retry_page(id: UUID, number: int, db: DBSession, ocr: bool = False):
+    return await service.retry_page(db, id, number, ocr)
+
+
+@router.post("/{id}/pages/{number}/items", response_model=ImportItemResponse)
+async def add_manual_item(id: UUID, number: int, data: ImportItemUpdateRequest, db: DBSession):
+    return await service.add_manual_item(db, id, number, data)
+
+
 @router.post("/{id}/retry", response_model=ImportJobResponse)
 async def retry_import(id: UUID, db: DBSession):
     return await service.retry_import(db, id)
@@ -136,6 +137,36 @@ async def update_import_item(id: UUID, item_id: UUID, data: ImportItemUpdateRequ
     item = await service.update_item(db, item_id, data, id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+    return item
+
+
+@router.post("/{id}/items/{item_id}/unavailable", response_model=ImportItemResponse)
+async def mark_supplier_unavailable(id: UUID, item_id: UUID, db: DBSession):
+    from app.models.import_job import ImportJob
+    from app.models.product import ProductSupplierData
+    from app.models.pricing import ProductChannelPrice
+    from sqlalchemy import update
+    job = await db.scalar(select(ImportJob).where(ImportJob.id == id).with_for_update())
+    if not job or job.status not in {"REVIEW_REQUIRED", "IMPORTED"}:
+        raise HTTPException(409, "Importação indisponível para revisão.")
+    item = await repo.get_item(db, item_id)
+    if not item or item.import_id != id:
+        raise HTTPException(404, "Item não encontrado nesta importação.")
+    if item.status == "IMPORTED":
+        return item
+    values = {**(item.normalized_data or {}), **(item.user_edits or {})}
+    if not values.get("is_out_of_stock") or not values.get("normalized_code"):
+        raise HTTPException(422, "A origem deve indicar esgotamento e código do fornecedor.")
+    link = await db.scalar(select(ProductSupplierData).where(ProductSupplierData.supplier_id == job.supplier_id, ProductSupplierData.supplier_code == values["normalized_code"]).with_for_update())
+    if not link:
+        raise HTTPException(409, "Não existe vínculo com este código; revise o produto ou ignore o item.")
+    link.is_active = False
+    await db.execute(update(ProductChannelPrice).where(ProductChannelPrice.product_id == link.product_id).values(is_stale=True))
+    item.product_id = link.product_id
+    item.status = "IMPORTED"
+    item.review_notes = "Disponibilidade do fornecedor atualizada pelo operador a partir do esgotamento no catálogo."
+    job.total_imported = (job.total_imported or 0) + 1
+    await db.flush()
     return item
 
 @router.patch("/items/{item_id}", response_model=ImportItemResponse)

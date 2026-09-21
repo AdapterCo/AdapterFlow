@@ -73,8 +73,11 @@ class MercadoLivreService:
                 try:
                     from app.services.shopee_service import ShopeeService
                     shopee_svc = ShopeeService()
-                    token, shop_id, _ = await shopee_svc.get_valid_access_token(session, account.id)
-                    await shopee_client.get_shop_info(token, shop_id)
+                    try:
+                        token, shop_id, _ = await shopee_svc.get_valid_access_token(session, account.id)
+                        await shopee_svc.client.get_shop_info(token, shop_id)
+                    finally:
+                        await shopee_svc.client.close()
                     account.verified_at = datetime.now(timezone.utc)
                     account.connection_error = None
                 except Exception:

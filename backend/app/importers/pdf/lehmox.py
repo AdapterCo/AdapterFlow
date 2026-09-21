@@ -16,6 +16,7 @@ Strategy:
 import re
 import hashlib
 import logging
+import copy
 from decimal import Decimal, InvalidOperation
 
 import pymupdf as fitz
@@ -207,6 +208,65 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
             return {"total_pages": len(doc)}
 
     @staticmethod
+    def _visible_text_data(page, text_data):
+        """Exclude text demonstrably covered by later opaque images/rectangles.
+
+        Raw evidence remains untouched. PDF drawing order matters: supplier
+        templates can contain old prices underneath the final card artwork.
+        See PyMuPDF get_texttrace()/get_bboxlog() sequence numbers.
+        """
+        image_regions = []
+        mask_cache = {}
+        masks = {image[0]: image[1] for image in page.get_images(full=True)}
+        for image in page.get_image_info(xrefs=True):
+            if image.get("xref") in masks:
+                image_regions.append((fitz.Rect(image["bbox"]), image, masks[image["xref"]]))
+        covers = []
+        strikes = []
+        for seq, (kind, bounds) in enumerate(page.get_bboxlog()):
+            rect = fitz.Rect(bounds)
+            if kind == "fill-image":
+                for r, info, mask in image_regions:
+                    if all(abs(a-b) < .1 for a,b in zip(rect,r)):
+                        covers.append((seq, rect, info, mask))
+                        break
+        for drawing in page.get_drawings():
+            bounds = drawing["rect"]
+            if bounds.width > 5 and bounds.height <= 2 and (drawing.get("fill_opacity") == 1 or drawing.get("stroke_opacity") == 1):
+                strikes.append(bounds)
+            if drawing.get("fill") is not None and drawing.get("fill_opacity") == 1:
+                for item in drawing["items"]:
+                    if item[0] == "re":
+                        covers.append((drawing["seqno"], fitz.Rect(item[1]), None, 0))
+        def opaque_at(rect, info, mask):
+            if not mask:
+                return True
+            if mask not in mask_cache:
+                pix = fitz.Pixmap(page.parent, mask)
+                mask_cache[mask] = (pix.width, pix.height, pix.stride, pix.samples)
+            width, height, stride, samples = mask_cache[mask]
+            unit = rect * ~fitz.Matrix(info["transform"])
+            x0, y0 = max(0, int(unit.x0 * width)), max(0, int(unit.y0 * height))
+            x1, y1 = min(width, int(unit.x1 * width)+1), min(height, int(unit.y1 * height)+1)
+            return x1 > x0 and y1 > y0 and all(min(samples[y*stride+x0:y*stride+x1]) >= 254 for y in range(y0,y1))
+        hidden = []
+        for trace in page.get_texttrace():
+            rect = fitz.Rect(trace["bbox"])
+            text = "".join(chr(char[0]) for char in trace["chars"]).strip()
+            struck_price = (PRICE_PILL_REGEX.search(text) or PRICE_GENERIC_REGEX.search(text)) and any(
+                rect.y0 + rect.height*.25 < (line.y0+line.y1)/2 < rect.y0+rect.height*.75
+                and min(line.x1,rect.x1)-max(line.x0,rect.x0) >= rect.width*.8 for line in strikes)
+            if struck_price or trace["opacity"] == 0 or trace["type"] > 1 or any(seq > trace["seqno"] and cover.contains(rect) and opaque_at(rect, info, mask) for seq, cover, info, mask in covers):
+                hidden.append((text, rect))
+        visible = copy.deepcopy(text_data)
+        for block in visible.get("blocks", []):
+            for line in block.get("lines", []):
+                line["spans"] = [span for span in line.get("spans", []) if not any(
+                    span.get("text", "").strip() == text and fitz.Rect(span["bbox"]).intersects(rect)
+                    for text, rect in hidden)]
+        return visible, len(hidden)
+
+    @staticmethod
     def _preview(page: fitz.Page, page_num: int) -> dict:
         # Bound previews of unusual, very large page sizes without changing source data.
         scale = min(1.0, 1600 / max(page.rect.width, page.rect.height, 1))
@@ -217,7 +277,7 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
             "cx": page.rect.width / 2, "cy": page.rect.height / 2, "is_page_preview": True,
         }
 
-    def extract_page(self, doc: fitz.Document, page_num: int) -> dict:
+    def extract_page(self, doc: fitz.Document, page_num: int, force_ocr: bool = False) -> dict:
         """Return raw evidence plus candidates for one one-based document page."""
         self._validate_document(doc)
         if page_num < 1 or page_num > len(doc):
@@ -235,28 +295,33 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
             text_data = page.get_text("dict", flags=fitz.TEXTFLAGS_DICT & ~fitz.TEXT_PRESERVE_IMAGES)
             result["text_blocks"] = self._extract_text_blocks(text_data, page_num)
             result["images"] = self._extract_images(doc, page, page_num, result["warnings"])
+            visible_text_data, hidden_count = self._visible_text_data(page, text_data)
+            product_blocks = self._extract_text_blocks(visible_text_data, page_num)
+            if hidden_count:
+                result["warnings"].append(f"{hidden_count} trechos ocultos ou preços riscados foram mantidos no texto bruto e excluídos dos produtos.")
 
-            if not result["raw_text"].strip():
+            if force_ocr or not result["raw_text"].strip():
                 if not result["images"] and not page.get_drawings():
                     result["status"] = "EMPTY"
                     return result
                 result["images"].append(self._preview(page, page_num))
-                if not settings.OCR_ENABLED:
+                if not settings.OCR_ENABLED and not force_ocr:
                     result["status"] = "NEEDS_REVIEW"
                     result["warnings"].append("Página sem texto selecionável. As imagens foram preservadas; habilite OCR para reconhecer o texto.")
                     return result
                 try:
                     textpage = page.get_textpage_ocr(language=settings.OCR_LANGUAGE, dpi=150, full=True)
-                    result["raw_text"] = page.get_text("text", textpage=textpage)
+                    result["raw_text"] += "\n[OCR]\n" + page.get_text("text", textpage=textpage)
                     text_data = page.get_text("dict", textpage=textpage)
                     result["text_blocks"] = self._extract_text_blocks(text_data, page_num)
+                    product_blocks = result["text_blocks"]
                     result["warnings"].append("Texto obtido por OCR; confira a leitura com a página original.")
                 except Exception as exc:
                     result["error_message"] = f"OCR indisponível ou falhou nesta página ({type(exc).__name__})."
                     return result
 
             product_images = [image for image in result["images"] if not image.get("is_page_preview")]
-            cards = self._identify_product_cards(result["text_blocks"], product_images, page.rect, page_num)
+            cards = self._identify_product_cards(product_blocks, product_images, page.rect, page_num)
             for card in cards:
                 product = self._card_to_product(card, page_num)
                 if product is not None:
@@ -267,7 +332,7 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
                 if not any(image.get("is_page_preview") for image in result["images"]):
                     result["images"].append(self._preview(page, page_num))
             else:
-                result["status"] = "NEEDS_REVIEW" if result["warnings"] else "EXTRACTED"
+                result["status"] = "NEEDS_REVIEW" if result["warnings"] or any(p.warnings for p in result["products"]) else "EXTRACTED"
         except Exception as exc:
             result["status"] = "FAILED"
             result["error_message"] = f"Falha ao analisar a página {page_num} ({type(exc).__name__}). O conteúdo recuperado foi preservado."
@@ -299,14 +364,24 @@ class LehmoxCatalogImporter(BaseCatalogImporter):
         blocks = []
         source_blocks = []
         for block in text_data.get("blocks", []):
-            lines = block.get("lines", [])
-            line_texts = [" ".join(span.get("text", "") for span in line.get("spans", [])) for line in lines]
-            codes = {code for text in line_texts if (code := self._find_code(text))}
-            price_lines = sum(bool(PRICE_GENERIC_REGEX.search(text) or PRICE_PILL_REGEX.search(text)) for text in line_texts)
-            if block.get("type") == 0 and (len(codes) > 1 or price_lines > 1):
-                source_blocks.extend({"type": 0, "lines": [line], "bbox": line["bbox"]} for line in lines)
-            else:
-                source_blocks.append(block)
+            if block.get("type") != 0:
+                continue
+            # MuPDF can combine distant columns in a single block. Associate
+            # each actual line, with bounds recalculated after visibility filtering.
+            for line in block.get("lines", []):
+                spans = [s for s in line.get("spans", []) if s.get("text", "").strip()]
+                if not spans:
+                    continue
+                groups = [[]]
+                for span in spans:
+                    previous = groups[-1][-1] if groups[-1] else None
+                    if previous and "bbox" in span and "bbox" in previous and span["bbox"][0] - previous["bbox"][2] > max(span.get("size", 10), previous.get("size", 10)) * 2:
+                        groups.append([])
+                    groups[-1].append(span)
+                for group in groups:
+                    bounds = [s.get("bbox", line.get("bbox", block["bbox"])) for s in group]
+                    bbox = (min(b[0] for b in bounds), min(b[1] for b in bounds), max(b[2] for b in bounds), max(b[3] for b in bounds))
+                    source_blocks.append({"type": 0, "lines": [{"spans": group}], "bbox": bbox})
 
         for block in source_blocks:
             if block.get("type") != 0:

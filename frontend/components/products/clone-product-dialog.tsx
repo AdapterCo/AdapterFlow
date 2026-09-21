@@ -31,6 +31,7 @@ export function CloneProductDialog({ open, onOpenChange }: Props) {
   const [urlInput, setUrlInput] = useState("");
   const [previewData, setPreviewData] = useState<ClonePreviewResponse | null>(null);
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
+  const [supplierCode, setSupplierCode] = useState("");
   const [costPriceInput, setCostPriceInput] = useState("");
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
@@ -59,11 +60,12 @@ export function CloneProductDialog({ open, onOpenChange }: Props) {
   const handleClone = async () => {
     if (!previewData) return;
     try {
-      const cost = costPriceInput.trim() ? parseFloat(costPriceInput.replace(",", ".")) : null;
+      const cost = costPriceInput.trim() ? costPriceInput.trim().replace(",", ".") : null;
       const created = await cloneMutation.mutateAsync({
-        url_or_id: previewData.mlb_id,
+        url_or_id: urlInput.trim(),
         supplier_id: selectedSupplierId || null,
         cost_price: cost,
+        supplier_code: supplierCode.trim() || null,
         status: "ACTIVE",
       });
 
@@ -74,6 +76,7 @@ export function CloneProductDialog({ open, onOpenChange }: Props) {
       setPreviewData(null);
       setSelectedSupplierId("");
       setCostPriceInput("");
+      setSupplierCode("");
       // Navigate to product page
       router.push(`/products/${created.id}`);
     } catch (err) {
@@ -97,6 +100,7 @@ export function CloneProductDialog({ open, onOpenChange }: Props) {
           </DialogDescription>
         </DialogHeader>
 
+<Input aria-label="Código real do fornecedor" placeholder="Código do fornecedor (obrigatório ao vincular)" value={supplierCode} onChange={(e) => setSupplierCode(e.target.value)} />
         {/* Input bar */}
         <form onSubmit={handleAnalyze} className="space-y-3 pt-1">
           <div className="flex gap-2">

@@ -1,23 +1,20 @@
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from uuid import UUID
-from pathlib import Path
 import hashlib
 import secrets
 import logging
 from fastapi import HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.config import settings
-from app.core.tokens import cipher, encrypt_token, decrypt_token
-from app.models.marketplace import MarketplaceAccount, MarketplaceListing, OAuthAttempt
+from app.core.tokens import encrypt_token, decrypt_token
+from app.models.marketplace import MarketplaceAccount, OAuthAttempt
 from app.integrations.shopee.client import ShopeeClient
 from app.repositories.marketplace_repository import MarketplaceRepository
 from app.repositories.product_repository import ProductRepository
 from app.repositories.pricing_repository import PricingRepository
-from app.storage.service import StorageService
 from app.schemas.marketplace import (
-    MarketplaceAccountResponse, MarketplaceListingResponse,
+    MarketplaceAccountResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,19 +42,7 @@ class ShopeeService:
         self.pricing_repo = PricingRepository()
 
     async def start_oauth(self, session: AsyncSession, owner: str):
-        cipher()
-        state = secrets.token_urlsafe(32)
-        browser = secrets.token_urlsafe(32)
-        session.add(
-            OAuthAttempt(
-                state_hash=digest(state),
-                browser_hash=digest(browser),
-                owner=owner,
-                expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-            )
-        )
-        await session.flush()
-        return self.client.get_authorization_url(state), browser
+        raise HTTPException(501, "Autorização Shopee indisponível até validação oficial do retorno de state. Nenhuma autorização foi iniciada.")
 
     async def handle_oauth_callback(
         self, session: AsyncSession, code: str, shop_id: int, state: str, browser: str | None, owner: str
@@ -150,116 +135,4 @@ class ShopeeService:
         return await self.client.get_category_attributes(token, shop_id, category_id)
 
     async def publish_product(self, session: AsyncSession, request):
-        product = await self.product_repo.get_with_details(session, request.product_id)
-        if not product or product.status != "ACTIVE":
-            raise HTTPException(409, "Produto não encontrado ou inativo.")
-
-        price = await self.pricing_repo.get_product_price(session, product.id, request.pricing_profile_id)
-        if not price or price.is_stale or not price.profile.is_active or price.profile.channel != "SHOPEE":
-            raise HTTPException(409, "Calcule um preço atualizado com perfil ativo da Shopee.")
-
-        source = next((s for s in product.supplier_data if s.id == price.supplier_data_id), None)
-        if not source or not source.is_active or not source.supplier.is_active or source.current_cost != price.cost_basis:
-            raise HTTPException(409, "Custo de origem alterado ou indisponível; recalcule o preço.")
-
-        if not product.images:
-            raise HTTPException(422, "Cadastre fotos reais do produto antes de publicar na Shopee.")
-
-        token, shop_id, account_name = await self.get_valid_access_token(session, request.account_id)
-
-        key = f"shopee:{request.account_id}:{product.id}"
-        await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": key})
-
-        same_request = await session.scalar(
-            select(MarketplaceListing).where(MarketplaceListing.request_id == request.request_id)
-        )
-        if same_request:
-            if same_request.product_id != product.id or same_request.account_id != request.account_id:
-                raise HTTPException(409, "Identificador de operação já utilizado.")
-            if same_request.external_listing_id:
-                return MarketplaceListingResponse.model_validate(same_request).model_copy(
-                    update={"product_name": product.name, "account_name": account_name}
-                )
-            raise HTTPException(409, "Operação já registrada. Consulte Publicações antes de tentar novamente.")
-
-        existing = await session.scalar(
-            select(MarketplaceListing.id).where(
-                MarketplaceListing.product_id == product.id,
-                MarketplaceListing.account_id == request.account_id,
-                MarketplaceListing.status.not_in(["ERROR", "CLOSED"]),
-            ).limit(1)
-        )
-        if existing:
-            raise HTTPException(409, "Existe anúncio ou publicação ativa para este produto nesta loja Shopee.")
-
-        listing = MarketplaceListing(
-            product_id=product.id,
-            account_id=request.account_id,
-            request_id=request.request_id,
-            marketplace="SHOPEE",
-            title=request.title.strip(),
-            price=price.calculated_price,
-            available_quantity=request.available_quantity,
-            category_id=str(request.category_id),
-            listing_type_id="default",
-            status="IN_PROGRESS",
-        )
-        session.add(listing)
-        await session.commit()
-
-        try:
-            storage = StorageService(settings.STORAGE_PATH)
-            image_id_list = []
-            for picture in product.images[:9]:  # Shopee permits up to 9 images
-                image_bytes = storage.get(picture.storage_path)
-                filename = Path(picture.storage_path).name
-                image_id = await self.client.upload_image(token, shop_id, image_bytes, filename)
-                image_id_list.append(image_id)
-
-            # Build Shopee Add Item payload
-            weight = float(product.weight) if product.weight and product.weight > 0 else 0.3
-            payload = {
-                "original_price": float(price.calculated_price),
-                "description": product.description or product.name,
-                "item_name": request.title.strip(),
-                "normal_stock": request.available_quantity,
-                "category_id": int(request.category_id),
-                "weight": weight,
-                "item_status": "NORMAL",
-                "image": {"image_id_list": image_id_list},
-                "brand": {"brand_id": 0, "original_brand_name": product.brand or "NoBrand"},
-                "logistic_info": [
-                    {
-                        "logistic_id": 0,
-                        "enabled": True,
-                    }
-                ],
-            }
-
-            response = await self.client.add_item(token, shop_id, payload)
-            item_id = response.get("item_id")
-            if not item_id:
-                raise ValueError("Identificador do item não retornado pela Shopee.")
-
-            listing.external_listing_id = str(item_id)
-            listing.status = "ACTIVE"
-            listing.raw_response = safe_json(response)
-            listing.last_synced_at = datetime.now(timezone.utc)
-            await session.commit()
-
-        except Exception as exc:
-            await session.rollback()
-            listing = await session.scalar(
-                select(MarketplaceListing).where(MarketplaceListing.request_id == request.request_id)
-            )
-            if listing:
-                listing.status = "ERROR"
-                listing.error_message = (
-                    str(exc.detail) if isinstance(exc, HTTPException) else f"Falha na publicação: {str(exc)}"
-                )
-                await session.commit()
-            raise HTTPException(422, listing.error_message if listing else str(exc))
-
-        return MarketplaceListingResponse.model_validate(listing).model_copy(
-            update={"product_name": product.name, "account_name": account_name}
-        )
+        raise HTTPException(501, "Publicação Shopee não implementada: logística, marca, atributos e reconciliação precisam de contrato oficial validado. Nenhum anúncio foi enviado.")

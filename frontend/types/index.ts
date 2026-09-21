@@ -82,7 +82,7 @@ export interface PublishShopeeProductRequest {
   category_id: number;
   available_quantity: number;
   description?: string | null;
-  attributes?: Record<string, any>[] | null;
+  attributes?: Record<string, unknown>[] | null;
 }
 
 export interface ClonePreviewRequest {
@@ -110,7 +110,8 @@ export interface ClonePreviewResponse {
 export interface CloneProductRequest {
   url_or_id: string;
   supplier_id?: string | null;
-  cost_price?: number | null;
+  cost_price?: string | null;
+  supplier_code?: string | null;
   status?: "ACTIVE" | "DRAFT";
 }
 

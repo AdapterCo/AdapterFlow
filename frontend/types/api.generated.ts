@@ -4,6 +4,66 @@
  */
 
 export interface paths {
+    "/api/v1/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Login
+         * @description Autentica o operador administrativo e cria cookie de sessão seguro.
+         */
+        post: operations["login_api_v1_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logout
+         * @description Encerra a sessão do usuário removendo o cookie de autenticação.
+         */
+        post: operations["logout_api_v1_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Current User
+         * @description Retorna os dados do usuário atualmente autenticado.
+         */
+        get: operations["get_current_user_api_v1_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/suppliers": {
         parameters: {
             query?: never;
@@ -52,6 +112,46 @@ export interface paths {
         get: operations["list_products_api_v1_products_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/clone/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Clone Product
+         * @description Extrai informações públicas de um anúncio do Mercado Livre para pré-visualização.
+         */
+        post: operations["preview_clone_product_api_v1_products_clone_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clone Product From Ml
+         * @description Clona um anúncio do Mercado Livre, baixando fotos e criando o produto no AdapterFlow.
+         */
+        post: operations["clone_product_from_ml_api_v1_products_clone_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -145,6 +245,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/imports/{id}/pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Import Pages */
+        get: operations["get_import_pages_api_v1_imports__id__pages_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/{id}/source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Import Source */
+        get: operations["get_import_source_api_v1_imports__id__source_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/{id}/pages/{number}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Page */
+        post: operations["retry_page_api_v1_imports__id__pages__number__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/{id}/pages/{number}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Manual Item */
+        post: operations["add_manual_item_api_v1_imports__id__pages__number__items_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Import */
+        post: operations["retry_import_api_v1_imports__id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/imports/{id}/items": {
         parameters: {
             query?: never;
@@ -179,6 +364,23 @@ export interface paths {
         patch: operations["update_import_item_api_v1_imports__id__items__item_id__patch"];
         trace?: never;
     };
+    "/api/v1/imports/{id}/items/{item_id}/unavailable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark Supplier Unavailable */
+        post: operations["mark_supplier_unavailable_api_v1_imports__id__items__item_id__unavailable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/imports/items/{item_id}": {
         parameters: {
             query?: never;
@@ -194,6 +396,23 @@ export interface paths {
         head?: never;
         /** Update Import Item Alias */
         patch: operations["update_import_item_alias_api_v1_imports_items__item_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/imports/{id}/approve-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve All Import Items */
+        post: operations["approve_all_import_items_api_v1_imports__id__approve_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/imports/{id}/confirm": {
@@ -340,6 +559,126 @@ export interface paths {
          * @description Remove a precificação de um canal específico para o produto.
          */
         delete: operations["delete_product_price_api_v1_pricing_products__product_id__profiles__profile_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/marketplaces/shopee/configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Shopee Configuration
+         * @description Diagnóstico de configuração da Shopee Open API v2.
+         */
+        get: operations["shopee_configuration_api_v1_marketplaces_shopee_configuration_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/marketplaces/shopee/auth-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Shopee Auth Url
+         * @description Gera URL oficial de autorização da Shopee com state protegido contra CSRF.
+         */
+        get: operations["get_shopee_auth_url_api_v1_marketplaces_shopee_auth_url_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/marketplaces/shopee/oauth/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Shopee Oauth Callback
+         * @description Processa o código e shop_id retornados pela Shopee e cadastra a conta.
+         */
+        post: operations["shopee_oauth_callback_api_v1_marketplaces_shopee_oauth_callback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/marketplaces/shopee/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Shopee Categories
+         * @description Lista as categorias ativas disponíveis para a loja Shopee.
+         */
+        get: operations["list_shopee_categories_api_v1_marketplaces_shopee_categories_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/marketplaces/shopee/categories/{category_id}/attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Shopee Category Attributes
+         * @description Retorna os atributos obrigatórios e opcionais da categoria na Shopee.
+         */
+        get: operations["get_shopee_category_attributes_api_v1_marketplaces_shopee_categories__category_id__attributes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/marketplaces/shopee/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish To Shopee
+         * @description Publica um produto na Shopee com validação prévia de margens e custos da Fase 2.
+         */
+        post: operations["publish_to_shopee_api_v1_marketplaces_shopee_publish_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -683,6 +1022,64 @@ export interface components {
             /** Domain Name */
             domain_name?: string | null;
         };
+        /** ClonePreviewRequest */
+        ClonePreviewRequest: {
+            /**
+             * Url Or Id
+             * @description URL do produto no Mercado Livre ou identificador MLB
+             */
+            url_or_id: string;
+        };
+        /** ClonePreviewResponse */
+        ClonePreviewResponse: {
+            /** Mlb Id */
+            mlb_id: string;
+            /** Name */
+            name: string;
+            /** Price */
+            price?: string | null;
+            /** Original Price */
+            original_price?: string | null;
+            /** Brand */
+            brand?: string | null;
+            /** Model */
+            model?: string | null;
+            /** Ean */
+            ean?: string | null;
+            /** Gtin */
+            gtin?: string | null;
+            /** Color */
+            color?: string | null;
+            /** Dimensions */
+            dimensions?: string | null;
+            /** Weight */
+            weight?: string | null;
+            /** Category Id */
+            category_id?: string | null;
+            /** Pictures */
+            pictures?: string[];
+            /** Description */
+            description?: string | null;
+            /** Permalink */
+            permalink?: string | null;
+        };
+        /** CloneProductRequest */
+        CloneProductRequest: {
+            /** Url Or Id */
+            url_or_id: string;
+            /** Supplier Id */
+            supplier_id?: string | null;
+            /** Supplier Code */
+            supplier_code?: string | null;
+            /** Cost Price */
+            cost_price?: number | string | null;
+            /**
+             * Status
+             * @default ACTIVE
+             * @enum {string}
+             */
+            status: "ACTIVE" | "DRAFT";
+        };
         /** DREBreakdown */
         DREBreakdown: {
             /** Gross Revenue */
@@ -825,6 +1222,10 @@ export interface components {
             normalized_price?: number | string | null;
             /** Normalized Color */
             normalized_color?: string | null;
+            /** Normalized Dimensions */
+            normalized_dimensions?: string | null;
+            /** Normalized Pcs Per Box */
+            normalized_pcs_per_box?: number | null;
             /** Review Notes */
             review_notes?: string | null;
         };
@@ -862,6 +1263,12 @@ export interface components {
             total_imported?: number | null;
             /** Total Errors */
             total_errors?: number | null;
+            /** Total Pages */
+            total_pages?: number | null;
+            /** Processed Pages */
+            processed_pages?: number | null;
+            /** Last Progress At */
+            last_progress_at?: string | null;
             /** Error Message */
             error_message?: string | null;
             /** Started At */
@@ -873,6 +1280,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Original File Url */
+            readonly original_file_url: string;
             /** Original Filename */
             readonly original_filename: string;
             /** Items Detected */
@@ -881,6 +1290,72 @@ export interface components {
             readonly items_imported: number;
             /** Items Failed */
             readonly items_failed: number;
+        };
+        /** ImportPageListResponse */
+        ImportPageListResponse: {
+            /** Items */
+            items: components["schemas"]["ImportPageResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** ImportPageResponse */
+        ImportPageResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Import Id
+             * Format: uuid
+             */
+            import_id: string;
+            /** Page Number */
+            page_number: number;
+            /** Width */
+            width?: number | null;
+            /** Height */
+            height?: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "EXTRACTED" | "NEEDS_REVIEW" | "FAILED" | "EMPTY";
+            /** Raw Text */
+            raw_text?: string | null;
+            /** Text Blocks */
+            text_blocks?: {
+                [key: string]: unknown;
+            }[];
+            /** Image Paths */
+            image_paths?: string[];
+            /** Warnings */
+            warnings?: string[];
+            /** Product Count */
+            product_count: number;
+            /** Error Message */
+            error_message?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Image Urls */
+            readonly image_urls: string[];
+        };
+        /** LoginRequest */
+        LoginRequest: {
+            /** Username */
+            username: string;
+            /** Password */
+            password: string;
+        };
+        /** LoginResponse */
+        LoginResponse: {
+            /** Success */
+            success: boolean;
+            /** Username */
+            username: string;
         };
         /** MarketplaceAccountResponse */
         MarketplaceAccountResponse: {
@@ -1506,6 +1981,61 @@ export interface components {
                 [key: string]: unknown;
             }[] | null;
         };
+        /** PublishShopeeProductRequest */
+        PublishShopeeProductRequest: {
+            /**
+             * Product Id
+             * Format: uuid
+             */
+            product_id: string;
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /**
+             * Pricing Profile Id
+             * Format: uuid
+             */
+            pricing_profile_id: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /** Title */
+            title: string;
+            /** Category Id */
+            category_id: number;
+            /** Available Quantity */
+            available_quantity: number;
+            /** Description */
+            description?: string | null;
+            /** Attributes */
+            attributes?: {
+                [key: string]: unknown;
+            }[] | null;
+        };
+        /** ShopeeConfigurationResponse */
+        ShopeeConfigurationResponse: {
+            /** Partner Id */
+            partner_id: number | null;
+            /** Redirect Uri */
+            redirect_uri: string | null;
+            /** Ready */
+            ready: boolean;
+            /** Issues */
+            issues: string[];
+        };
+        /** ShopeeOAuthCallbackRequest */
+        ShopeeOAuthCallbackRequest: {
+            /** Code */
+            code: string;
+            /** Shop Id */
+            shop_id: number;
+            /** State */
+            state: string;
+        };
         /** SupplierCreate */
         SupplierCreate: {
             /** Name */
@@ -1617,6 +2147,79 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    login_api_v1_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_api_v1_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_current_user_api_v1_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     list_suppliers_api_v1_suppliers_get: {
         parameters: {
             query?: {
@@ -1800,6 +2403,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_clone_product_api_v1_products_clone_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClonePreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClonePreviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clone_product_from_ml_api_v1_products_clone_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloneProductRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductWithDetailsResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2044,6 +2713,172 @@ export interface operations {
             };
         };
     };
+    get_import_pages_api_v1_imports__id__pages_get: {
+        parameters: {
+            query?: {
+                skip?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportPageListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_import_source_api_v1_imports__id__source_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_page_api_v1_imports__id__pages__number__retry_post: {
+        parameters: {
+            query?: {
+                ocr?: boolean;
+            };
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_manual_item_api_v1_imports__id__pages__number__items_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportItemUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportItemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_import_api_v1_imports__id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_import_items_api_v1_imports__id__items_get: {
         parameters: {
             query?: {
@@ -2114,6 +2949,38 @@ export interface operations {
             };
         };
     };
+    mark_supplier_unavailable_api_v1_imports__id__items__item_id__unavailable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportItemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_import_item_alias_api_v1_imports_items__item_id__patch: {
         parameters: {
             query?: never;
@@ -2136,6 +3003,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImportItemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_all_import_items_api_v1_imports__id__approve_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -2460,6 +3358,176 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    shopee_configuration_api_v1_marketplaces_shopee_configuration_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShopeeConfigurationResponse"];
+                };
+            };
+        };
+    };
+    get_shopee_auth_url_api_v1_marketplaces_shopee_auth_url_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    shopee_oauth_callback_api_v1_marketplaces_shopee_oauth_callback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShopeeOAuthCallbackRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketplaceAccountResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_shopee_categories_api_v1_marketplaces_shopee_categories_get: {
+        parameters: {
+            query: {
+                account_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_shopee_category_attributes_api_v1_marketplaces_shopee_categories__category_id__attributes_get: {
+        parameters: {
+            query: {
+                account_id: string;
+            };
+            header?: never;
+            path: {
+                category_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_to_shopee_api_v1_marketplaces_shopee_publish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishShopeeProductRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketplaceListingResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

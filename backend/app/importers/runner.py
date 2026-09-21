@@ -27,7 +27,7 @@ if __name__ == "__main__":
             result = importer.metadata(sys.argv[1])
         elif len(sys.argv) > 4 and sys.argv[3] == "--page":
             with fitz.open(sys.argv[1]) as document:
-                result = importer.extract_page(document, int(sys.argv[4]))
+                result = importer.extract_page(document, int(sys.argv[4]), force_ocr="--ocr" in sys.argv[5:])
         else:
             result = importer.extract(sys.argv[1])
         output.write_text(json.dumps(result, default=encode), encoding="utf-8")

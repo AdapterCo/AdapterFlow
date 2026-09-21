@@ -7,7 +7,7 @@ from uuid import UUID
 from typing import Optional
 from decimal import Decimal, InvalidOperation
 from fastapi import HTTPException
-from sqlalchemy import update
+from sqlalchemy import update, select, func
 from app.models.pricing import ProductChannelPrice
 
 class ProductService:
@@ -100,6 +100,7 @@ class ProductService:
             update_fields = {
                 "name": data.get("normalized_name") or product.name,
                 "color": data.get("normalized_color") or product.color,
+                "dimensions": data.get("normalized_dimensions") or product.dimensions,
             }
             if is_out_of_stock:
                 update_fields["status"] = "INACTIVE"
@@ -140,9 +141,11 @@ class ProductService:
             session.add(price)
             
         if import_item.image_path:
+            position = await session.scalar(select(func.max(ProductImage.position)).where(ProductImage.product_id == product.id))
             image = ProductImage(
                 product_id=product.id,
                 storage_path=import_item.image_path,
+                position=0 if position is None else position + 1,
                 source="IMPORT"
             )
             session.add(image)

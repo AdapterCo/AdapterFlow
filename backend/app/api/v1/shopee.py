@@ -1,7 +1,6 @@
-from typing import Optional
 from uuid import UUID
 from urllib.parse import urlsplit
-from fastapi import APIRouter, status, Query, Depends, Request, Response, HTTPException
+from fastapi import APIRouter, status, Depends, Request, Response, HTTPException
 
 from app.api.deps import DBSession
 from app.core.security import require_admin
@@ -24,7 +23,7 @@ async def shopee_configuration():
     """Diagnóstico de configuração da Shopee Open API v2."""
     from app.core.tokens import cipher
 
-    issues = []
+    issues = ["Integração incompleta: OAuth e publicação aguardam validação do contrato oficial. Não disponível para novas conexões/publicações."]
     if not settings.SHOPEE_PARTNER_ID:
         issues.append("Defina SHOPEE_PARTNER_ID com o Partner ID numérico fornecido pela Shopee.")
     if not settings.SHOPEE_PARTNER_KEY:

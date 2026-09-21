@@ -32,6 +32,9 @@ services:
       MERCADOLIVRE_APP_ID: ${MERCADOLIVRE_APP_ID:-}
       MERCADOLIVRE_CLIENT_SECRET: ${MERCADOLIVRE_CLIENT_SECRET:-}
       MERCADOLIVRE_REDIRECT_URI: ${MERCADOLIVRE_REDIRECT_URI:-}
+      SHOPEE_PARTNER_ID: ${SHOPEE_PARTNER_ID:-0}
+      SHOPEE_PARTNER_KEY: ${SHOPEE_PARTNER_KEY:-}
+      SHOPEE_REDIRECT_URI: ${SHOPEE_REDIRECT_URI:-}
       OCR_ENABLED: ${OCR_ENABLED:-false}
       DATABASE_HOST: db
       DATABASE_PORT: "5432"
@@ -62,6 +65,12 @@ services:
     restart: unless-stopped
     environment: *backend-environment
     command: python -m app.worker
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.worker", "--healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     mem_limit: 1g
     cpus: 1
     volumes:

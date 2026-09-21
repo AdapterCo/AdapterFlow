@@ -18,7 +18,7 @@ const authorization = "Basic " + Buffer.from(`${user}:${password}`).toString("ba
 const api = createServer(async (req, res) => {
   res.setHeader("Content-Type", "application/json");
   if (req.headers.authorization !== authorization) { res.writeHead(401).end("{}"); return; }
-  if (req.url === "/api/v1/ready") { res.end(JSON.stringify({ status: "ready" })); return; }
+  if (["/api/v1/ready", "/api/v1/auth/me"].includes(req.url)) { res.end(JSON.stringify({ status: "ready" })); return; }
   if (req.url === "/api/v1/marketplaces/mercadolivre/auth-url") {
     res.setHeader("Set-Cookie", `ml_oauth=${cookie}; Path=/api/v1/marketplaces/mercadolivre; HttpOnly; SameSite=Lax`);
     res.end(JSON.stringify({ auth_url: `https://provider.invalid/authorize?state=${state}` })); return;
@@ -39,7 +39,7 @@ const api = createServer(async (req, res) => {
 await new Promise((resolve, reject) => { api.once("error", reject); api.listen(Number(destination.port), destination.hostname, resolve); });
 const port = "3299", origin = `http://127.0.0.1:${port}`;
 const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-H", "127.0.0.1", "-p", port], {
-  env: { ...process.env, ADMIN_USERNAME: user, ADMIN_PASSWORD: password, APP_ORIGIN: origin }, stdio: ["ignore", "pipe", "pipe"],
+  env: { ...process.env, ADMIN_USERNAME: user, ADMIN_PASSWORD: password, APP_ORIGIN: origin, INTERNAL_BACKEND_URL: destination.origin }, stdio: ["ignore", "pipe", "pipe"],
 });
 let logs = "";
 child.stdout.on("data", data => { logs += data; }); child.stderr.on("data", data => { logs += data; });
@@ -47,7 +47,7 @@ try {
   let ready = false;
   for (let attempt = 0; attempt < 100; attempt++) {
     if (child.exitCode !== null) throw new Error(logs);
-    try { if ((await fetch(origin)).status === 401) { ready = true; break; } } catch { /* startup */ }
+    try { if ((await fetch(origin + "/api/v1/suppliers")).status === 401) { ready = true; break; } } catch { /* startup */ }
     await new Promise(resolve => setTimeout(resolve, 200));
   }
   assert.ok(ready);

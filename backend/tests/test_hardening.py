@@ -69,16 +69,17 @@ def test_profiles_keep_unknown_costs_absent_and_validate_patch():
     with pytest.raises(ValidationError): PricingProfileUpdate(fixed_fee="-1")
     with pytest.raises(ValidationError): PricingProfileCreate(name="Test only", free_shipping_threshold="79")
 
-def test_authentication_and_origin(monkeypatch):
+@pytest.mark.asyncio
+async def test_authentication_and_origin(monkeypatch):
     monkeypatch.setattr(settings, "ADMIN_USERNAME", "test-operator")
     monkeypatch.setattr(settings, "ADMIN_PASSWORD", SecretStr("test-only-password"))
     request = Request({"type": "http", "method": "POST", "headers": []})
-    with pytest.raises(HTTPException) as error: require_admin(request, None)
+    with pytest.raises(HTTPException) as error: await require_admin(request, None, AsyncMock())
     assert error.value.status_code == 401
     credentials = HTTPBasicCredentials(username="test-operator", password="test-only-password")
-    assert require_admin(request, credentials) == "test-operator"
+    assert await require_admin(request, credentials, AsyncMock()) == "test-operator"
     request = Request({"type": "http", "method": "POST", "headers": [(b"origin", b"https://untrusted.invalid")]})
-    with pytest.raises(HTTPException) as error: require_admin(request, credentials)
+    with pytest.raises(HTTPException) as error: await require_admin(request, credentials, AsyncMock())
     assert error.value.status_code == 403
 
 def test_tokens_encrypted_and_plaintext_rejected(monkeypatch):

@@ -24,7 +24,7 @@ class ProductRepository:
     async def list_all(self, session: AsyncSession, skip: int = 0, limit: int = 100, search: Optional[str] = None, status: Optional[str] = None) -> List[Product]:
         query = select(Product).options(selectinload(Product.images), selectinload(Product.supplier_data).selectinload(ProductSupplierData.prices))
         if search:
-            query = query.where(Product.name.ilike(f"%{search}%") | Product.sku.ilike(f"%{search}%"))
+            query = query.where(Product.name.ilike(f"%{search}%") | Product.sku.ilike(f"%{search}%") | Product.supplier_data.any(ProductSupplierData.supplier_code.ilike(f"%{search}%")))
         if status:
             query = query.where(Product.status == status)
         query = query.order_by(Product.created_at.desc()).offset(skip).limit(limit)
@@ -34,7 +34,7 @@ class ProductRepository:
     async def count(self, session: AsyncSession, search: Optional[str] = None, status: Optional[str] = None) -> int:
         query = select(func.count(Product.id))
         if search:
-            query = query.where(Product.name.ilike(f"%{search}%") | Product.sku.ilike(f"%{search}%"))
+            query = query.where(Product.name.ilike(f"%{search}%") | Product.sku.ilike(f"%{search}%") | Product.supplier_data.any(ProductSupplierData.supplier_code.ilike(f"%{search}%")))
         if status:
             query = query.where(Product.status == status)
         result = await session.execute(query)

@@ -196,6 +196,8 @@ class ImportItemUpdateRequest(DecimalInputModel):
     normalized_name: str | None = Field(None, min_length=1, max_length=500)
     normalized_price: Decimal | None = Field(None, ge=0, max_digits=12, decimal_places=4)
     normalized_color: str | None = Field(None, max_length=100)
+    normalized_dimensions: str | None = Field(None, max_length=255)
+    normalized_pcs_per_box: int | None = Field(None, ge=1, le=2147483647)
     review_notes: str | None = Field(None, max_length=2000)
     model_config = ConfigDict(extra="forbid")
 

@@ -65,6 +65,24 @@ class ImportService:
         self.repo = ImportRepository()
         self.product_svc = ProductService()
 
+    async def create_import_stream(self, session, supplier_id, file_name, source, storage):
+        job_id = uuid4()
+        path = f"imports/{supplier_id}/{job_id}.pdf"
+        try:
+            size, digest = await asyncio.to_thread(storage.put_stream, path, source, settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024)
+        except ValueError as exc:
+            raise HTTPException(413, str(exc)) from None
+        try:
+            job = await self.repo.create_job(session, {"id": job_id, "supplier_id": supplier_id,
+                "file_name": file_name, "file_path": path, "file_size": size, "file_hash": digest,
+                "importer_type": "lehmox", "status": "UPLOADED"})
+            await session.commit()
+            return job
+        except Exception:
+            await session.rollback()
+            storage.delete(path)
+            raise
+
     async def create_import(self, session: AsyncSession, supplier_id: UUID, file_name: str, file_content: bytes, storage: StorageService):
         job_id = uuid4()
         path = f"imports/{supplier_id}/{job_id}.pdf"
@@ -111,11 +129,13 @@ class ImportService:
                         if number in completed:
                             continue
                         try:
-                            report = await asyncio.to_thread(run_extractor, source, "--page", str(number))
+                            extra = ["--ocr"] if number in (job.processing_log or {}).get("ocr_pages", []) else []
+                            report = await asyncio.to_thread(run_extractor, source, "--page", str(number), *extra)
                         except ValueError as exc:
                             report = {"page_number": number, "status": "FAILED", "error_message": str(exc),
                                       "text_blocks": [], "images": [], "products": [], "warnings": []}
                         await self._persist_page(session, job, report, storage)
+                        (storage.base_path / ".worker-heartbeat").touch()
                     pages = list((await session.scalars(select(ImportPage).where(ImportPage.import_id == job_id))).all())
                 failed = [page.page_number for page in pages if page.status == "FAILED"]
                 job.status = "FAILED" if failed else "REVIEW_REQUIRED"
@@ -178,7 +198,7 @@ class ImportService:
                 session.add(ImportItem(
                     import_id=job.id, raw_data=raw, normalized_data=normalized,
                     confidence=item.get("confidence"), image_path=image_path,
-                    status="IGNORED" if unavailable else "DETECTED",
+                    status="DETECTED",
                     review_notes="Esgotado explicitamente no catálogo." if unavailable else None,
                 ))
             session.add(ImportPage(
@@ -224,6 +244,46 @@ class ImportService:
         await session.flush()
         return job
 
+    async def retry_page(self, session, job_id, number, ocr=False):
+        job = await session.scalar(select(ImportJob).where(ImportJob.id == job_id).with_for_update())
+        if not job or job.status not in {"FAILED", "REVIEW_REQUIRED", "IMPORTED"}:
+            raise HTTPException(409, "Aguarde o processamento antes de reler uma página.")
+        page = await session.scalar(select(ImportPage).where(ImportPage.import_id == job_id, ImportPage.page_number == number))
+        if not page:
+            raise HTTPException(404, "Página não encontrada.")
+        items = [item for item in await self.repo.get_items_by_job(session, job_id) if (item.raw_data or {}).get("page_number") == number]
+        if any(item.status != "DETECTED" or item.user_edits for item in items):
+            raise HTTPException(409, "Esta página já contém decisões de revisão. Importe novamente o PDF para preservar essas decisões.")
+        for item in items:
+            await session.delete(item)
+        job.total_detected = max(0, (job.total_detected or 0) - page.product_count)
+        page.product_count = 0
+        page.status = "FAILED"
+        job.status = "UPLOADED"
+        job.error_message = None
+        job.completed_at = None
+        job.processing_log = {**(job.processing_log or {}), "ocr_pages": [number] if ocr else []}
+        await session.flush()
+        return job
+
+    async def add_manual_item(self, session, job_id, number, data):
+        job = await session.scalar(select(ImportJob).where(ImportJob.id == job_id).with_for_update())
+        if not job or job.status not in {"REVIEW_REQUIRED", "IMPORTED"}:
+            raise HTTPException(409, "Importação indisponível para revisão.")
+        page = await session.scalar(select(ImportPage).where(ImportPage.import_id == job_id, ImportPage.page_number == number))
+        if not page:
+            raise HTTPException(404, "Página não encontrada.")
+        values = data.model_dump(exclude_unset=True, mode="json")
+        values.pop("status", None)
+        notes = values.pop("review_notes", None)
+        item = ImportItem(import_id=job_id, status="DETECTED", raw_data={"page_number": number, "manual_entry": True}, normalized_data={}, user_edits=values, review_notes=notes)
+        session.add(item)
+        page.product_count += 1
+        job.total_detected = (job.total_detected or 0) + 1
+        job.status = "REVIEW_REQUIRED"
+        await session.flush()
+        return item
+
     async def update_item(self, session: AsyncSession, item_id: UUID, data, job_id: UUID | None = None):
         item = await self.repo.get_item(session, item_id)
         if not item or (job_id is not None and item.import_id != job_id):
@@ -260,7 +320,7 @@ class ImportService:
         skipped = 0
         for item in items:
             unavailable = bool(item.normalized_data and item.normalized_data.get("is_out_of_stock"))
-            if item.status in {"DETECTED", "IGNORED"} and not unavailable:
+            if item.status == "DETECTED" and not unavailable:
                 try:
                     self.product_svc.validate_import_item(item)
                 except HTTPException as exc:
@@ -303,17 +363,32 @@ class ImportService:
         if not approved_items:
             if job.status == "IMPORTED":
                 return job  # Idempotent confirmation if already imported and no new approved items.
+            if items and all(item.status in {"IMPORTED", "IGNORED", "REJECTED"} for item in items):
+                job.status = "IMPORTED"
+                job.completed_at = datetime.now(timezone.utc)
+                await session.flush()
+                return await self.repo.get_job(session, job_id)
             raise HTTPException(409, "Nenhum item aprovado para cadastrar. Aprove os produtos que deseja importar antes de confirmar.")
 
         for item in approved_items:
             self.product_svc.validate_import_item(item)
+
+        codes = {}
+        for item in items:
+            if item.status not in {"APPROVED", "IMPORTED"}:
+                continue
+            data = {**(item.normalized_data or {}), **(item.user_edits or {})}
+            code = (data.get("normalized_code") or "").strip()
+            if code in codes and (item.status == "APPROVED" or codes[code].status == "APPROVED"):
+                raise HTTPException(409, f"Código {code} repetido nesta importação. Mantenha apenas uma ocorrência aprovada e rejeite ou ignore as demais.")
+            codes[code] = item
 
         for item in approved_items:
             await self.product_svc.create_from_import(session, item, job.supplier_id)
 
         job.total_imported = sum(item.status == "IMPORTED" for item in items)
         job.total_errors = 0
-        has_pending = any(item.status in {"DETECTED", "IGNORED"} for item in items)
+        has_pending = any(item.status == "DETECTED" for item in items)
         job.status = "REVIEW_REQUIRED" if has_pending else "IMPORTED"
         job.completed_at = datetime.now(timezone.utc)
         await session.flush()

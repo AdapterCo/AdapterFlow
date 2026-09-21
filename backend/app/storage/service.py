@@ -3,6 +3,7 @@ from pathlib import Path, PureWindowsPath
 from tempfile import NamedTemporaryFile
 from urllib.parse import quote
 import shutil
+import hashlib
 
 
 class StorageService:
@@ -29,6 +30,25 @@ class StorageService:
 
     def get(self, path: str) -> bytes:
         return self._get_full_path(path).read_bytes()
+
+    def put_stream(self, path: str, source, max_bytes: int) -> tuple[int, str]:
+        full_path = self._get_full_path(path)
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        size = 0
+        digest = hashlib.sha256()
+        with full_path.open("xb") as target:
+            try:
+                while chunk := source.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise ValueError("Arquivo excede o limite configurado.")
+                    digest.update(chunk)
+                    target.write(chunk)
+            except Exception:
+                target.close()
+                full_path.unlink(missing_ok=True)
+                raise
+        return size, digest.hexdigest()
 
     def iter_bytes(self, path: str):
         with self._get_full_path(path).open("rb") as file:

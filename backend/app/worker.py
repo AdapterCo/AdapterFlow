@@ -1,5 +1,8 @@
 """Durable database queue: one bounded extraction at a time per worker."""
 import asyncio
+import sys
+import time
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, update, func
 from app.core.config import settings
@@ -13,6 +16,7 @@ async def run():
     service = ImportService()
     storage = StorageService(settings.STORAGE_PATH)
     while True:
+        (Path(settings.STORAGE_PATH) / ".worker-heartbeat").touch()
         async with async_session_maker() as session:
             await session.execute(update(ImportJob).where(
                 ImportJob.status == "PROCESSING",
@@ -27,4 +31,7 @@ async def run():
 
 
 if __name__ == "__main__":
+    if "--healthcheck" in sys.argv:
+        heartbeat = Path(settings.STORAGE_PATH) / ".worker-heartbeat"
+        sys.exit(0 if heartbeat.exists() and time.time() - heartbeat.stat().st_mtime < 360 else 1)
     asyncio.run(run())

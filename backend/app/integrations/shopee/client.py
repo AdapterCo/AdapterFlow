@@ -1,10 +1,8 @@
 """Shopee Open API v2 client with HMAC-SHA256 signing and shop OAuth."""
-import asyncio
 import hashlib
 import hmac
 import logging
 import time
-from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import httpx
@@ -121,7 +119,7 @@ class ShopeeClient:
                 files=files,
             )
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
-            logger.warning("Falha de rede ao conectar com Shopee: %s", exc)
+            logger.warning("Falha de rede Shopee tipo=%s", type(exc).__name__)
             raise HTTPException(503, "Não foi possível conectar com os servidores da Shopee. Tente novamente.") from None
 
         if response.status_code >= 500:
@@ -134,11 +132,10 @@ class ShopeeClient:
 
         error_code = data.get("error")
         if error_code:
-            error_msg = data.get("message") or str(error_code)
-            logger.warning("Shopee API erro [%s]: %s (path=%s)", error_code, error_msg, path)
+            logger.warning("Shopee recusou operação no endpoint %s", path)
             if "invalid_access_token" in str(error_code).lower() or "token_expired" in str(error_code).lower():
                 raise HTTPException(401, "Token de acesso da Shopee expirado. Reconecte ou atualize a conta.")
-            raise HTTPException(422, f"Shopee recusou a operação: {error_msg}")
+            raise HTTPException(422, "Shopee recusou a operação. Verifique os dados e permissões da conta.")
 
         return data.get("response") or data
 

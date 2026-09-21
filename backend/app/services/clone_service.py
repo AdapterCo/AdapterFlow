@@ -1,4 +1,3 @@
-import io
 import re
 import uuid
 from decimal import Decimal
@@ -6,7 +5,10 @@ from typing import Tuple
 from pathlib import Path
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, text
+from urllib.parse import urlsplit
+import simplejson
+from app.models.supplier import Supplier
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -23,7 +25,7 @@ def parse_mlb_info(url_or_id: str) -> Tuple[str, bool]:
     Returns (mlb_id, is_catalog).
     """
     cleaned = url_or_id.strip()
-    is_catalog = "/p/MLB" in cleaned.upper()
+    is_catalog = "/P/MLB" in cleaned.upper()
     match = re.search(r"(MLB)[\s\-_]?([0-9]+)", cleaned, re.IGNORECASE)
     if not match:
         raise HTTPException(
@@ -58,30 +60,14 @@ class CloneService:
                 if account:
                     from app.services.mercadolivre_service import MercadoLivreService
                     meli_service = MercadoLivreService()
-                    token, _ = await meli_service.get_valid_access_token(session, account.id)
+                    try:
+                        token, _ = await meli_service.get_valid_access_token(session, account.id)
+                    finally:
+                        await meli_service.client.close()
                     if token:
                         return token
-            except Exception:
-                pass
-
-        if settings.MERCADOLIVRE_APP_ID and settings.MERCADOLIVRE_CLIENT_SECRET:
-            try:
-                async with httpx.AsyncClient(timeout=15) as client:
-                    token_res = await client.post(
-                        "https://api.mercadolibre.com/oauth/token",
-                        data={
-                            "grant_type": "client_credentials",
-                            "client_id": settings.MERCADOLIVRE_APP_ID,
-                            "client_secret": settings.MERCADOLIVRE_CLIENT_SECRET,
-                        },
-                    )
-                    if token_res.status_code == 200:
-                        token_json = token_res.json()
-                        token = token_json.get("access_token")
-                        if token:
-                            return token
-            except Exception:
-                pass
+            except HTTPException:
+                raise
 
         return None
 
@@ -116,14 +102,14 @@ class CloneService:
                     res = await client.get(url, headers=headers)
                     last_status = res.status_code
                     if res.status_code == 200:
-                        item = res.json()
+                        item = simplejson.loads(res.content, use_decimal=True)
                         break
                     elif res.status_code in (401, 403):
                         # PolicyAgent or unauthorized
                         last_status = res.status_code
                         break
-                except Exception as e:
-                    raise HTTPException(502, f"Falha de rede ao consultar Mercado Livre: {str(e)}")
+                except httpx.HTTPError:
+                    raise HTTPException(502, "Falha de rede ao consultar Mercado Livre.") from None
 
             if item is None:
                 if last_status in (401, 403):
@@ -153,7 +139,7 @@ class CloneService:
             elif item.get("description") and isinstance(item["description"], str):
                 description_text = item["description"].strip()
 
-            target_desc_id = item.get("buy_box_winner", {}).get("item_id") or item.get("id") or mlb_id
+            target_desc_id = (item.get("buy_box_winner") or {}).get("item_id") or item.get("id") or mlb_id
             if not description_text and str(target_desc_id).startswith("MLB"):
                 try:
                     desc_res = await client.get(
@@ -262,17 +248,33 @@ class CloneService:
     async def clone_product(self, session: AsyncSession, request: CloneProductRequest) -> Product:
         """Download pictures and persist new Product from Mercado Livre listing."""
         mlb_id, is_catalog = parse_mlb_info(request.url_or_id)
+        if request.supplier_id and not (request.supplier_code or "").strip():
+            raise HTTPException(422, "Informe o código real do fornecedor para vincular este produto.")
+        if request.supplier_id:
+            supplier = await session.get(Supplier, request.supplier_id)
+            if not supplier or not supplier.is_active:
+                raise HTTPException(422, "Selecione um fornecedor ativo.")
+        if request.cost_price is not None and not request.supplier_id:
+            raise HTTPException(422, "Selecione o fornecedor responsável pelo custo informado.")
         item, description = await self._fetch_ml_data(mlb_id, is_catalog=is_catalog, session=session)
         extracted = self._extract_attributes(item, description, mlb_id)
+        external_id = str(item.get("id") or mlb_id)
+        await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"clone:MERCADO_LIVRE:{external_id}"})
+        existing = await session.scalar(select(Product.id).where(Product.source_marketplace == "MERCADO_LIVRE", Product.source_external_id == external_id))
+        if existing:
+            return await self.product_repo.get_with_details(session, existing)
+        if not extracted["name"]:
+            raise HTTPException(422, "A origem não informou o nome do produto; não é possível cadastrar um nome presumido.")
 
         # 1. Create Product
         product_id = uuid.uuid4()
-        sku_candidate = f"ML-{mlb_id.replace('MLB', '')}"
 
         product = Product(
             id=product_id,
-            name=extracted["name"] or f"Produto Clonado {mlb_id}",
-            sku=sku_candidate,
+            name=extracted["name"],
+            sku=None,
+            source_marketplace="MERCADO_LIVRE",
+            source_external_id=external_id,
             brand=extracted["brand"],
             model=extracted["model"],
             ean=extracted["ean"],
@@ -286,44 +288,17 @@ class CloneService:
         session.add(product)
         await session.flush()
 
-        # 2. Download and persist pictures to local StorageService
-        pictures = extracted.get("pictures", [])[:8]  # up to 8 images
-        async with httpx.AsyncClient(timeout=30) as client:
-            for idx, pic_url in enumerate(pictures):
-                try:
-                    res = await client.get(pic_url)
-                    if res.status_code == 200 and res.content:
-                        filename = f"img_{idx+1}_{Path(pic_url).name.split('?')[0]}"
-                        if not filename.endswith((".jpg", ".jpeg", ".png", ".webp")):
-                            filename += ".jpg"
-                        rel_path = f"products/{product.id}/{filename}"
-                        self.storage.save(rel_path, res.content)
-
-                        img_record = ProductImage(
-                            product_id=product.id,
-                            storage_path=rel_path,
-                            original_filename=filename,
-                            mime_type=res.headers.get("content-type", "image/jpeg"),
-                            size_bytes=len(res.content),
-                            position=idx,
-                            source="ML_CLONE",
-                        )
-                        session.add(img_record)
-                except Exception:
-                    # Non-fatal if a single photo fails download
-                    pass
-
         # 3. Optional supplier and cost linking
         if request.supplier_id:
-            supplier_code = f"ML-{mlb_id}"
+            supplier_code = request.supplier_code.strip()
             supplier_data = ProductSupplierData(
                 product_id=product.id,
                 supplier_id=request.supplier_id,
                 supplier_code=supplier_code,
                 supplier_name=extracted["name"],
-                pcs_per_box=1,
+                pcs_per_box=None,
                 current_cost=request.cost_price,
-                raw_cost_value=str(request.cost_price) if request.cost_price else None,
+                raw_cost_value=str(request.cost_price) if request.cost_price is not None else None,
                 is_active=True,
             )
             session.add(supplier_data)
@@ -337,5 +312,55 @@ class CloneService:
                 )
                 session.add(price)
 
-        await session.commit()
+
+        # 2. Download and persist pictures to local StorageService
+        pictures = extracted.get("pictures", [])[:8]
+        saved_paths = []
+        async with httpx.AsyncClient(timeout=30) as client:
+            for idx, pic_url in enumerate(pictures):
+                try:
+                    parts = urlsplit(pic_url)
+                    if parts.scheme != "https" or not parts.hostname or not (parts.hostname == "mlstatic.com" or parts.hostname.endswith(".mlstatic.com")):
+                        raise ValueError("Origem de imagem não permitida.")
+                    async with client.stream("GET", pic_url) as stream:
+                        stream.raise_for_status()
+                        content = bytearray()
+                        async for chunk in stream.aiter_bytes():
+                            content.extend(chunk)
+                            if len(content) > 10 * 1024 * 1024:
+                                raise ValueError("Imagem excede 10 MiB.")
+                        res = httpx.Response(200, content=bytes(content), headers=stream.headers)
+                    if not res.content:
+                        raise ValueError("Imagem vazia.")
+                    if res.content:
+                        filename = f"img_{idx+1}_{Path(pic_url).name.split('?')[0]}"
+                        if not filename.endswith((".jpg", ".jpeg", ".png", ".webp")):
+                            filename += ".jpg"
+                        rel_path = f"products/{product.id}/{filename}"
+                        self.storage.put(rel_path, res.content)
+                        saved_paths.append(rel_path)
+
+                        img_record = ProductImage(
+                            product_id=product.id,
+                            storage_path=rel_path,
+                            original_filename=filename,
+                            mime_type=res.headers.get("content-type", "image/jpeg"),
+                            size_bytes=len(res.content),
+                            position=idx,
+                            source="ML_CLONE",
+                        )
+                        session.add(img_record)
+                except Exception:
+                    await session.rollback()
+                    for path in saved_paths:
+                        self.storage.delete(path)
+                    raise HTTPException(422, "Falha ao baixar ou salvar uma foto. Nenhum produto foi cadastrado; tente novamente.") from None
+
+        try:
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            for path in saved_paths:
+                self.storage.delete(path)
+            raise
         return await self.product_repo.get_with_details(session, product.id)
