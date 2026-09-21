@@ -6,9 +6,11 @@ from typing import Tuple
 from pathlib import Path
 import httpx
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.models.marketplace import MarketplaceAccount
 from app.models.product import Product, ProductSupplierData, SupplierProductPrice
 from app.models.product_image import ProductImage
 from app.repositories.product_repository import ProductRepository
@@ -16,9 +18,12 @@ from app.schemas.clone import ClonePreviewResponse, CloneProductRequest
 from app.storage.service import StorageService
 
 
-def parse_mlb_id(url_or_id: str) -> str:
-    """Extract and normalize MLB identifier from any Mercado Livre link or code."""
+def parse_mlb_info(url_or_id: str) -> Tuple[str, bool]:
+    """Extract and normalize MLB identifier from any Mercado Livre link or code.
+    Returns (mlb_id, is_catalog).
+    """
     cleaned = url_or_id.strip()
+    is_catalog = "/p/MLB" in cleaned.upper()
     match = re.search(r"(MLB)[\s\-_]?([0-9]+)", cleaned, re.IGNORECASE)
     if not match:
         raise HTTPException(
@@ -26,7 +31,13 @@ def parse_mlb_id(url_or_id: str) -> str:
             "Link ou identificador do Mercado Livre inválido. "
             "Forneça uma URL como https://produto.mercadolivre.com.br/MLB-... ou o código MLB."
         )
-    return f"MLB{match.group(2)}"
+    return f"MLB{match.group(2)}", is_catalog
+
+
+def parse_mlb_id(url_or_id: str) -> str:
+    """Extract and normalize MLB identifier from any Mercado Livre link or code."""
+    mlb_id, _ = parse_mlb_info(url_or_id)
+    return mlb_id
 
 
 class CloneService:
@@ -34,39 +45,135 @@ class CloneService:
         self.product_repo = ProductRepository()
         self.storage = StorageService(settings.STORAGE_PATH)
 
-    async def _fetch_ml_data(self, mlb_id: str) -> Tuple[dict, str]:
-        """Fetch item and description from official Mercado Livre public API."""
-        async with httpx.AsyncClient(timeout=20) as client:
+    async def _get_ml_token(self, session: AsyncSession | None = None) -> str | None:
+        """Obtains an access token from either an active connected account or client credentials."""
+        if session is not None:
             try:
-                item_res = await client.get(f"https://api.mercadolibre.com/items/{mlb_id}")
-            except Exception as e:
-                raise HTTPException(502, f"Falha de rede ao consultar Mercado Livre: {str(e)}")
-
-            if item_res.status_code == 404:
-                raise HTTPException(404, f"Anúncio '{mlb_id}' não encontrado no Mercado Livre.")
-            if item_res.status_code != 200:
-                raise HTTPException(502, f"Mercado Livre retornou status HTTP {item_res.status_code}.")
-
-            item = item_res.json()
-
-            # Attempt fetching plain text description
-            description_text = ""
-            try:
-                desc_res = await client.get(f"https://api.mercadolibre.com/items/{mlb_id}/description")
-                if desc_res.status_code == 200:
-                    desc_json = desc_res.json()
-                    description_text = (desc_json.get("plain_text") or desc_json.get("text") or "").strip()
+                account = await session.scalar(
+                    select(MarketplaceAccount)
+                    .where(MarketplaceAccount.marketplace == "MERCADO_LIVRE", MarketplaceAccount.is_active == True)
+                    .order_by(MarketplaceAccount.updated_at.desc())
+                    .limit(1)
+                )
+                if account:
+                    from app.services.mercadolivre_service import MercadoLivreService
+                    meli_service = MercadoLivreService()
+                    token, _ = await meli_service.get_valid_access_token(session, account.id)
+                    if token:
+                        return token
             except Exception:
                 pass
+
+        if settings.MERCADOLIVRE_APP_ID and settings.MERCADOLIVRE_CLIENT_SECRET:
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    token_res = await client.post(
+                        "https://api.mercadolibre.com/oauth/token",
+                        data={
+                            "grant_type": "client_credentials",
+                            "client_id": settings.MERCADOLIVRE_APP_ID,
+                            "client_secret": settings.MERCADOLIVRE_CLIENT_SECRET,
+                        },
+                    )
+                    if token_res.status_code == 200:
+                        token_json = token_res.json()
+                        token = token_json.get("access_token")
+                        if token:
+                            return token
+            except Exception:
+                pass
+
+        return None
+
+    async def _fetch_ml_data(
+        self, mlb_id: str, is_catalog: bool = False, session: AsyncSession | None = None
+    ) -> Tuple[dict, str]:
+        """Fetch item or catalog product and description from Mercado Livre API."""
+        token = await self._get_ml_token(session)
+
+        headers = {"User-Agent": "AdapterFlow/1.0", "Accept": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        # Determine URLs to query based on whether it is a catalog product (/p/MLB...) or regular item
+        if is_catalog:
+            urls = [
+                f"https://api.mercadolibre.com/products/{mlb_id}",
+                f"https://api.mercadolibre.com/items/{mlb_id}",
+            ]
+        else:
+            urls = [
+                f"https://api.mercadolibre.com/items/{mlb_id}",
+                f"https://api.mercadolibre.com/products/{mlb_id}",
+            ]
+
+        item = None
+        last_status = None
+
+        async with httpx.AsyncClient(timeout=25, follow_redirects=True) as client:
+            for url in urls:
+                try:
+                    res = await client.get(url, headers=headers)
+                    last_status = res.status_code
+                    if res.status_code == 200:
+                        item = res.json()
+                        break
+                    elif res.status_code in (401, 403):
+                        # PolicyAgent or unauthorized
+                        last_status = res.status_code
+                        break
+                except Exception as e:
+                    raise HTTPException(502, f"Falha de rede ao consultar Mercado Livre: {str(e)}")
+
+            if item is None:
+                if last_status in (401, 403):
+                    if not token:
+                        raise HTTPException(
+                            400,
+                            "Para clonar anúncios do Mercado Livre, conecte sua conta do Mercado Livre "
+                            "no menu 'Marketplaces'. O Mercado Livre exige autenticação para leitura de anúncios."
+                        )
+                    else:
+                        raise HTTPException(
+                            400,
+                            "Mercado Livre recusou a consulta (HTTP 403/401). A autorização da sua conta pode "
+                            "ter expirado. Acesse o menu 'Marketplaces' para reconectar sua conta e tente novamente."
+                        )
+                if last_status == 404:
+                    raise HTTPException(
+                        404,
+                        f"Anúncio ou produto '{mlb_id}' não encontrado no Mercado Livre. Verifique se o link ou código está correto."
+                    )
+                raise HTTPException(502, f"Mercado Livre retornou status HTTP {last_status or 500}.")
+
+            # Fetch plain text description
+            description_text = ""
+            if isinstance(item.get("short_description"), dict) and item["short_description"].get("content"):
+                description_text = item["short_description"]["content"].strip()
+            elif item.get("description") and isinstance(item["description"], str):
+                description_text = item["description"].strip()
+
+            target_desc_id = item.get("buy_box_winner", {}).get("item_id") or item.get("id") or mlb_id
+            if not description_text and str(target_desc_id).startswith("MLB"):
+                try:
+                    desc_res = await client.get(
+                        f"https://api.mercadolibre.com/items/{target_desc_id}/description",
+                        headers=headers,
+                    )
+                    if desc_res.status_code == 200:
+                        desc_json = desc_res.json()
+                        description_text = (desc_json.get("plain_text") or desc_json.get("text") or "").strip()
+                except Exception:
+                    pass
 
             return item, description_text
 
     def _extract_attributes(self, item: dict, description: str, mlb_id: str) -> dict:
-        """Extract structured product fields from Mercado Livre item payload."""
+        """Extract structured product fields from Mercado Livre item or catalog payload."""
         attrs = {a.get("id"): a.get("value_name") for a in item.get("attributes", []) if a.get("id")}
 
-        brand = attrs.get("BRAND") or attrs.get("MARCA")
-        model = attrs.get("MODEL") or attrs.get("MODELO")
+        brand = attrs.get("BRAND") or attrs.get("MARCA") or item.get("brand")
+        model = attrs.get("MODEL") or attrs.get("MODELO") or item.get("model")
         ean = attrs.get("GTIN") or attrs.get("EAN")
         gtin = attrs.get("GTIN") or ean
         color = attrs.get("COLOR") or attrs.get("COR")
@@ -94,13 +201,22 @@ class CloneService:
         pictures = []
         for pic in item.get("pictures", []):
             url = pic.get("secure_url") or pic.get("url")
-            if url:
+            if url and url not in pictures:
                 pictures.append(url)
 
+        if not pictures and item.get("thumbnail"):
+            pictures.append(item["thumbnail"])
+
+        # Price extraction (supports both /items and /products catalog formats)
         price = None
         if item.get("price") is not None:
             try:
                 price = Decimal(str(item["price"]))
+            except Exception:
+                pass
+        elif item.get("buy_box_winner") and item["buy_box_winner"].get("price") is not None:
+            try:
+                price = Decimal(str(item["buy_box_winner"]["price"]))
             except Exception:
                 pass
 
@@ -110,10 +226,17 @@ class CloneService:
                 original_price = Decimal(str(item["original_price"]))
             except Exception:
                 pass
+        elif item.get("buy_box_winner") and item["buy_box_winner"].get("original_price") is not None:
+            try:
+                original_price = Decimal(str(item["buy_box_winner"]["original_price"]))
+            except Exception:
+                pass
+
+        name = (item.get("title") or item.get("name") or "").strip()[:500]
 
         return {
             "mlb_id": mlb_id,
-            "name": item.get("title", "").strip()[:500],
+            "name": name,
             "price": price,
             "original_price": original_price,
             "brand": brand[:255] if brand else None,
@@ -129,17 +252,17 @@ class CloneService:
             "permalink": item.get("permalink"),
         }
 
-    async def preview(self, url_or_id: str) -> ClonePreviewResponse:
+    async def preview(self, url_or_id: str, session: AsyncSession | None = None) -> ClonePreviewResponse:
         """Parse link and return preview of Mercado Livre listing."""
-        mlb_id = parse_mlb_id(url_or_id)
-        item, description = await self._fetch_ml_data(mlb_id)
+        mlb_id, is_catalog = parse_mlb_info(url_or_id)
+        item, description = await self._fetch_ml_data(mlb_id, is_catalog=is_catalog, session=session)
         extracted = self._extract_attributes(item, description, mlb_id)
         return ClonePreviewResponse(**extracted)
 
     async def clone_product(self, session: AsyncSession, request: CloneProductRequest) -> Product:
         """Download pictures and persist new Product from Mercado Livre listing."""
-        mlb_id = parse_mlb_id(request.url_or_id)
-        item, description = await self._fetch_ml_data(mlb_id)
+        mlb_id, is_catalog = parse_mlb_info(request.url_or_id)
+        item, description = await self._fetch_ml_data(mlb_id, is_catalog=is_catalog, session=session)
         extracted = self._extract_attributes(item, description, mlb_id)
 
         # 1. Create Product

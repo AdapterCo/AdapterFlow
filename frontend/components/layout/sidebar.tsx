@@ -18,6 +18,7 @@ import {
   Settings,
   LogOut,
 } from "lucide-react";
+import { useCurrentUser } from "@/hooks/use-auth";
 
 
 const mainNavItems = [
@@ -40,6 +41,7 @@ const futureNavItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { data: currentUser } = useCurrentUser();
 
   return (
     <div className="flex h-screen w-64 flex-col border-r bg-white">
@@ -103,8 +105,12 @@ export function Sidebar() {
               AF
             </div>
             <div className="min-w-0">
-              <p className="text-xs font-semibold truncate text-zinc-900">AdapterFlow</p>
-              <p className="text-[10px] text-zinc-500 truncate">Sessão Ativa</p>
+              <p className="text-xs font-semibold truncate text-zinc-900">
+                {currentUser?.username || "Administrador"}
+              </p>
+              <p className="text-[10px] text-emerald-600 font-medium truncate">
+                {currentUser?.role || "Administrador"}
+              </p>
             </div>
           </div>
           <button

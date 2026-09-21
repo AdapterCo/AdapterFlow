@@ -65,5 +65,5 @@ async def logout(response: Response):
 
 @router.get("/me")
 async def get_current_user(user: str = Depends(require_admin)):
-    """Retorna os dados do operador atualmente autenticado."""
-    return {"authenticated": True, "username": user}
+    """Retorna os dados do usuário atualmente autenticado."""
+    return {"authenticated": True, "username": user, "role": "Administrador"}

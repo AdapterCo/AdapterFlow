@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Sidebar } from "./sidebar";
 import { toast } from "sonner";
+import { useCurrentUser } from "@/hooks/use-auth";
 
 const getPageTitle = (pathname: string) => {
   if (pathname === "/") return "Dashboard";
@@ -26,6 +27,7 @@ const getPageTitle = (pathname: string) => {
 export function Header() {
   const pathname = usePathname();
   const title = getPageTitle(pathname);
+  const { data: currentUser } = useCurrentUser();
 
   const handleLogout = async () => {
     try {
@@ -54,9 +56,14 @@ export function Header() {
       <div className="flex flex-1 items-center justify-between">
         <h1 className="text-lg font-semibold">{title}</h1>
         <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground border rounded-full px-3 py-1 bg-zinc-50">
+          <div className="hidden sm:flex items-center gap-2 text-xs border rounded-full px-3 py-1 bg-zinc-50">
             <User className="h-3.5 w-3.5 text-zinc-500" />
-            <span className="font-medium text-foreground">Operador</span>
+            <span className="font-semibold text-foreground">
+              {currentUser?.username || "Administrador"}
+            </span>
+            <span className="text-[10px] bg-zinc-200/80 text-zinc-700 px-1.5 py-0.5 rounded font-medium">
+              {currentUser?.role || "Administrador"}
+            </span>
           </div>
           <Button
             variant="ghost"

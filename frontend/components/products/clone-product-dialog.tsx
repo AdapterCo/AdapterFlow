@@ -17,8 +17,9 @@ import { useClonePreview, useCloneProduct } from "@/hooks/use-clone";
 import { useSuppliers } from "@/hooks/use-suppliers";
 import { ClonePreviewResponse } from "@/types";
 import { errorMessage, formatCurrency } from "@/lib/utils";
+import Link from "next/link";
 import { toast } from "sonner";
-import { Copy, Sparkles, Loader2, CheckCircle2, ArrowRight, ExternalLink } from "lucide-react";
+import { Copy, Sparkles, Loader2, CheckCircle2, ArrowRight, ExternalLink, AlertCircle } from "lucide-react";
 
 interface Props {
   open: boolean;
@@ -31,6 +32,7 @@ export function CloneProductDialog({ open, onOpenChange }: Props) {
   const [previewData, setPreviewData] = useState<ClonePreviewResponse | null>(null);
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
   const [costPriceInput, setCostPriceInput] = useState("");
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const previewMutation = useClonePreview();
   const cloneMutation = useCloneProduct();
@@ -42,12 +44,15 @@ export function CloneProductDialog({ open, onOpenChange }: Props) {
       toast.warning("Insira o link ou código do anúncio no Mercado Livre.");
       return;
     }
+    setAnalysisError(null);
     try {
       const data = await previewMutation.mutateAsync({ url_or_id: urlInput.trim() });
       setPreviewData(data);
       toast.success(`Anúncio identificado: "${data.name.slice(0, 45)}..."`);
     } catch (err) {
-      toast.error(errorMessage(err));
+      const msg = errorMessage(err);
+      setAnalysisError(msg);
+      toast.error(msg);
     }
   };
 
@@ -99,7 +104,10 @@ export function CloneProductDialog({ open, onOpenChange }: Props) {
               <Input
                 placeholder="https://produto.mercadolivre.com.br/MLB-... ou código MLB"
                 value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
+                onChange={(e) => {
+                  setUrlInput(e.target.value);
+                  if (analysisError) setAnalysisError(null);
+                }}
                 className="h-10 text-sm pr-10"
               />
               <Copy className="h-4 w-4 absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
@@ -122,6 +130,28 @@ export function CloneProductDialog({ open, onOpenChange }: Props) {
           <p className="text-xs text-muted-foreground">
             Exemplo: <span className="font-mono text-[11px]">https://produto.mercadolivre.com.br/MLB-123456789...</span>
           </p>
+
+          {analysisError && (
+            <div className="rounded-lg border border-amber-300/80 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-2.5">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-amber-600" />
+              <div className="space-y-1">
+                <p className="font-semibold text-amber-950">Atenção ao consultar Mercado Livre</p>
+                <p className="text-amber-800 leading-relaxed">{analysisError}</p>
+                {analysisError.toLowerCase().includes("marketplace") && (
+                  <div className="pt-1">
+                    <Link
+                      href="/marketplaces"
+                      onClick={() => onOpenChange(false)}
+                      className="inline-flex items-center gap-1 font-semibold text-amber-900 underline hover:text-amber-950"
+                    >
+                      Ir para menu Marketplaces e conectar conta
+                      <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </form>
 
         {/* Preview Section */}

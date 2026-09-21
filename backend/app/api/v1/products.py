@@ -18,9 +18,9 @@ async def list_products(db: DBSession, skip: int = Query(0, ge=0), limit: int = 
 
 
 @router.post("/clone/preview", response_model=ClonePreviewResponse)
-async def preview_clone_product(data: ClonePreviewRequest):
+async def preview_clone_product(data: ClonePreviewRequest, db: DBSession):
     """Extrai informações públicas de um anúncio do Mercado Livre para pré-visualização."""
-    return await clone_service.preview(data.url_or_id)
+    return await clone_service.preview(data.url_or_id, session=db)
 
 
 @router.post("/clone", response_model=ProductWithDetailsResponse, status_code=201)

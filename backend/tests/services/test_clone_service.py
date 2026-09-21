@@ -71,3 +71,52 @@ async def test_clone_preview_mock():
         assert preview.weight == Decimal("0.120")
         assert len(preview.pictures) == 2
         assert preview.description == "Adaptador de altíssima qualidade com saída HDMI 4K."
+
+
+@pytest.mark.asyncio
+async def test_clone_preview_catalog_product():
+    service = CloneService()
+
+    mock_catalog_product = {
+        "id": "MLB3668875507",
+        "name": "Suporte De Carro Para Retrovisor 360",
+        "buy_box_winner": {
+            "price": 28.90,
+            "original_price": 35.00,
+            "item_id": "MLB999888",
+        },
+        "short_description": {"content": "Suporte veicular resistente articulado."},
+        "attributes": [
+            {"id": "BRAND", "value_name": "CarHolder"},
+            {"id": "COLOR", "value_name": "Preto"},
+        ],
+        "pictures": [
+            {"url": "https://http2.mlstatic.com/D_11111-MLB.jpg"},
+        ],
+        "permalink": "https://www.mercadolivre.com.br/p/MLB3668875507",
+    }
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = Response(200, json=mock_catalog_product)
+        preview = await service.preview("https://www.mercadolivre.com.br/p/MLB3668875507")
+
+        assert preview.mlb_id == "MLB3668875507"
+        assert preview.name == "Suporte De Carro Para Retrovisor 360"
+        assert preview.price == Decimal("28.90")
+        assert preview.brand == "CarHolder"
+        assert preview.color == "Preto"
+        assert preview.description == "Suporte veicular resistente articulado."
+        assert len(preview.pictures) == 1
+
+
+@pytest.mark.asyncio
+async def test_clone_preview_403_informative_error():
+    service = CloneService()
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = Response(403, json={"message": "Unauthorized by policy"})
+        with pytest.raises(HTTPException) as exc:
+            await service.preview("https://produto.mercadolivre.com.br/MLB-123456")
+
+        assert exc.value.status_code == 400
+        assert "Marketplaces" in exc.value.detail
