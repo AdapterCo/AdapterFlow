@@ -1,15 +1,20 @@
 import re
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import IntegrityError
+from pydantic import ValidationError
+
 from app.core.config import settings
 from app.api.v1.router import api_router
 from app.api.v1.marketplace_notifications import router as notifications_router
-from contextlib import asynccontextmanager
+from app.api.v1.auth import router as auth_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -19,10 +24,12 @@ async def lifespan(app: FastAPI):
         from app.api.v1.marketplaces import service
         await service.client.close()
 
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
+
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -31,8 +38,9 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error("Falha interna incidente=%s tipo=%s", incident, type(exc).__name__)
     return JSONResponse(
         status_code=500,
-        content={"detail": "Erro interno do servidor.", "incident_id": incident}
+        content={"detail": "Erro interno do servidor.", "incident_id": incident},
     )
+
 
 @app.middleware("http")
 async def sanitize_redirect_location(request: Request, call_next):
@@ -44,6 +52,7 @@ async def sanitize_redirect_location(request: Request, call_next):
         response.headers["location"] = loc
     return response
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
@@ -52,12 +61,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 app.include_router(notifications_router, prefix=settings.API_V1_PREFIX)
+
 
 @app.get("/")
 async def root():
     return {"name": "AdapterFlow API", "version": "0.1.0"}
+
 
 @app.get("/health")
 async def health():
@@ -79,12 +91,10 @@ async def readiness():
         return JSONResponse(status_code=503, content={"status": "not_ready"})
 
 
-from sqlalchemy.exc import IntegrityError
-from pydantic import ValidationError
-
 @app.exception_handler(IntegrityError)
 async def integrity_error(request: Request, exc: IntegrityError):
     return JSONResponse(status_code=409, content={"detail": "Conflito ou dado incompatível com as regras do cadastro."})
+
 
 @app.exception_handler(ValidationError)
 async def invalid_business_data(request: Request, exc: ValidationError):

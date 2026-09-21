@@ -16,7 +16,9 @@ import {
   TrendingUp,
   BarChart3,
   Settings,
+  LogOut,
 } from "lucide-react";
+
 
 const mainNavItems = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -93,6 +95,35 @@ export function Sidebar() {
           ))}
         </nav>
       </div>
+
+      <div className="border-t p-3">
+        <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 border border-zinc-200/60">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="h-8 w-8 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center shrink-0 font-bold text-xs">
+              AF
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold truncate text-zinc-900">AdapterFlow</p>
+              <p className="text-[10px] text-zinc-500 truncate">Sessão Ativa</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await fetch("/api/v1/auth/logout", { method: "POST" });
+              } finally {
+                window.location.assign("/login");
+              }
+            }}
+            className="p-1.5 rounded-md hover:bg-rose-50 text-zinc-400 hover:text-rose-600 transition-colors"
+            title="Encerrar sessão (Sair)"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
+

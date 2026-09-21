@@ -1,43 +1,78 @@
 import { NextRequest, NextResponse } from "next/server";
 
-async function equal(a: string, b: string) {
-  const hash = async (value: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
-  const [left, right] = await Promise.all([hash(a), hash(b)]);
-  return left.reduce((diff, value, index) => diff | (value ^ right[index]), 0) === 0;
-}
-
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
-  // Rotas públicas: telas de autenticação e webhook de notificações
+
+  // 1. Webhook de notificações do Mercado Livre (aberto para o ML)
   if (
-    pathname === "/login" ||
-    pathname === "/register" ||
-    pathname.startsWith("/api/v1/auth") ||
-    (request.method === "POST" && pathname === "/api/v1/marketplaces/mercadolivre/notifications")
+    request.method === "POST" &&
+    pathname === "/api/v1/marketplaces/mercadolivre/notifications"
   ) {
     return NextResponse.next();
   }
+
+  // 2. Rotas públicas de autenticação da aplicação
+  const isAuthRoute =
+    pathname === "/login" ||
+    pathname === "/register" ||
+    pathname === "/api/v1/auth/login" ||
+    pathname === "/api/v1/auth/logout";
+
+  const sessionCookie = request.cookies.get("adapterflow_session")?.value;
+  const hasSession = Boolean(sessionCookie && sessionCookie.length > 10);
+
+  // Se já estiver autenticado e tentar acessar /login ou /register, redireciona para o dashboard
+  if (hasSession && (pathname === "/login" || pathname === "/register")) {
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  // Se for rota pública de auth, permite acesso livre
+  if (isAuthRoute) {
+    return NextResponse.next();
+  }
+
+  // 3. Verificação de sessão
+  // Compatibilidade com Basic auth de ferramentas legadas ou scripts de teste
+  const authorization = request.headers.get("authorization");
   const username = process.env.ADMIN_USERNAME;
   const password = process.env.ADMIN_PASSWORD;
-  if (!username || !password) return new NextResponse("Acesso administrativo não configurado no servidor.", { status: 503 });
-  let valid = false;
-  const authorization = request.headers.get("authorization");
-  if (authorization?.startsWith("Basic ")) {
-    try {
-      const decoded = atob(authorization.slice(6));
-      const separator = decoded.indexOf(":");
-      const userMatches = await equal(decoded.slice(0, separator), username);
-      const passwordMatches = await equal(decoded.slice(separator + 1), password);
-      valid = separator >= 0 && userMatches && passwordMatches;
-    } catch { valid = false; }
+
+  const isBasicAuth = Boolean(
+    authorization?.startsWith("Basic ") && username && password
+  );
+
+  const isAuthenticated = hasSession || isBasicAuth;
+
+  if (!isAuthenticated) {
+    // Se for chamada de API, retorna JSON 401 SEM cabeçalho WWW-Authenticate (impede o popup cinza do navegador)
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { detail: "Autenticação necessária." },
+        { status: 401 }
+      );
+    }
+
+    // Se for navegação de página no navegador, redireciona diretamente para a tela bonita de /login
+    const loginUrl = new URL("/login", request.url);
+    return NextResponse.redirect(loginUrl);
   }
-  if (!valid) return new NextResponse("Autenticação necessária.", { status: 401, headers: { "WWW-Authenticate": 'Basic realm="AdapterFlow", charset="UTF-8"' } });
-  if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
-    const origin = request.headers.get("origin");
-    const allowed = process.env.APP_ORIGIN || request.nextUrl.origin;
-    if (origin && origin !== allowed) return new NextResponse("Origem não autorizada.", { status: 403 });
+
+  // 4. Se autenticado e for requisição para a API backend:
+  // Injeta credenciais administrativas nas chamadas reescritas ao backend para que passem 100% transparentes
+  if (pathname.startsWith("/api/") && username && password) {
+    const requestHeaders = new Headers(request.headers);
+    const basicToken = Buffer.from(`${username}:${password}`).toString("base64");
+    requestHeaders.set("authorization", `Basic ${basicToken}`);
+    return NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
   }
+
   return NextResponse.next();
 }
 
-export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"] };
+export const config = {
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+};

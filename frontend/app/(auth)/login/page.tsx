@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -12,15 +11,14 @@ import { toast } from "sonner";
 import { Eye, EyeOff, Lock, Mail, ArrowRight, Loader2 } from "lucide-react";
 
 const loginSchema = z.object({
-  email: z.string().trim().email("Informe um e-mail válido."),
-  password: z.string().min(6, "A senha deve ter no mínimo 6 caracteres."),
+  username: z.string().trim().min(1, "Informe seu usuário ou e-mail cadastrado."),
+  password: z.string().min(1, "Informe sua senha."),
   rememberMe: z.boolean().optional(),
 });
 
 type LoginValues = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
-  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -31,7 +29,7 @@ export default function LoginPage() {
   } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      email: "",
+      username: "",
       password: "",
       rememberMe: true,
     },
@@ -40,12 +38,24 @@ export default function LoginPage() {
   const onSubmit = async (values: LoginValues) => {
     setLoading(true);
     try {
-      // Simulação de autenticação com feedback visual imediato
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      toast.success(`Login realizado com sucesso! Bem-vindo(a), ${values.email}.`);
-      router.push("/marketplaces");
-    } catch {
-      toast.error("Falha na autenticação. Verifique seu e-mail e senha.");
+      const res = await fetch("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: values.username,
+          password: values.password,
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        throw new Error(errorData?.detail || "Nome de usuário ou senha incorretos.");
+      }
+
+      toast.success("Login realizado com sucesso! Redirecionando...");
+      window.location.assign("/");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha na autenticação.");
     } finally {
       setLoading(false);
     }
@@ -66,23 +76,24 @@ export default function LoginPage() {
         <div className="space-y-1.5">
           <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
             <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-            E-mail
+            Usuário ou E-mail
           </label>
           <div className="relative">
             <Input
-              type="email"
-              placeholder="seu@empresa.com.br"
-              autoComplete="email"
+              type="text"
+              placeholder="adaptercobr ou seu@empresa.com"
+              autoComplete="username"
               className="h-10"
-              {...register("email")}
+              {...register("username")}
             />
           </div>
-          {errors.email && (
+          {errors.username && (
             <p className="text-xs text-destructive mt-1 font-medium">
-              {errors.email.message}
+              {errors.username.message}
             </p>
           )}
         </div>
+
 
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
