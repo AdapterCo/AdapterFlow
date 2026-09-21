@@ -121,7 +121,7 @@ class MarketplacePlatformCredential(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    marketplace: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
+    marketplace: Mapped[str] = mapped_column(String(50), nullable=False)
 
     app_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     app_secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
