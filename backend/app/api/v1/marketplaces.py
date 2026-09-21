@@ -16,8 +16,10 @@ from app.schemas.marketplace import (
     MercadoLivreConfigurationResponse,
 )
 from app.services.mercadolivre_service import MercadoLivreService
+from app.api.v1.shopee import router as shopee_router
 
 router = APIRouter()
+router.include_router(shopee_router)
 service = MercadoLivreService()
 
 

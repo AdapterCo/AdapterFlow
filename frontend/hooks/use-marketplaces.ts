@@ -98,3 +98,68 @@ export interface CategoryAttribute { id: string; name: string; tags?: { required
 export function useCategoryAttributes(categoryId: string, accountId: string) {
   return useQuery({ queryKey: ["category-attributes", categoryId, accountId], queryFn: () => apiClient.get<CategoryAttribute[]>(`/api/v1/marketplaces/mercadolivre/categories/${categoryId}/attributes?account_id=${accountId}`), enabled: /^MLB[0-9]+$/.test(categoryId) && !!accountId });
 }
+
+export function useShopeeConfiguration() {
+  return useQuery({
+    queryKey: ["shopee-configuration"],
+    queryFn: () =>
+      apiClient.get<import("@/types").ShopeeConfigurationResponse>(
+        "/api/v1/marketplaces/shopee/configuration"
+      ),
+  });
+}
+
+export function useShopeeCallback() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: { code: string; shop_id: number; state: string }) =>
+      apiClient.post<MarketplaceAccount>(
+        "/api/v1/marketplaces/shopee/oauth/callback",
+        data
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["marketplaces-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["marketplace-listings"] });
+    },
+  });
+}
+
+export function useShopeeCategories(accountId: string) {
+  return useQuery({
+    queryKey: ["shopee-categories", accountId],
+    queryFn: () =>
+      apiClient.get<import("@/types").ShopeeCategoryItem[]>(
+        `/api/v1/marketplaces/shopee/categories?account_id=${accountId}`
+      ),
+    enabled: !!accountId,
+  });
+}
+
+export function useShopeeCategoryAttributes(categoryId: number, accountId: string) {
+  return useQuery({
+    queryKey: ["shopee-category-attributes", categoryId, accountId],
+    queryFn: () =>
+      apiClient.get<import("@/types").ShopeeAttributeItem[]>(
+        `/api/v1/marketplaces/shopee/categories/${categoryId}/attributes?account_id=${accountId}`
+      ),
+    enabled: !!categoryId && !!accountId,
+  });
+}
+
+export function usePublishToShopee() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: import("@/types").PublishShopeeProductRequest) =>
+      apiClient.post<MarketplaceListing>(
+        "/api/v1/marketplaces/shopee/publish",
+        data
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["marketplace-listings"] });
+      queryClient.invalidateQueries({ queryKey: ["marketplaces-overview"] });
+    },
+  });
+}
+

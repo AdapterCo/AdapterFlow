@@ -14,6 +14,7 @@ import { QueryError } from "@/components/data-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PublishDialog } from "@/components/marketplaces/publish-dialog";
+import { PublishShopeeDialog } from "@/components/marketplaces/publish-shopee-dialog";
 import { DREBreakdownCard } from "@/components/pricing/dre-breakdown";
 import { toast } from "sonner";
 const calculationSchema = z.object({ supplierId: z.string().uuid(), profileId: z.string().uuid(), manual: z.string().regex(/^$|^\d+(\.\d{1,2})?$/, "Informe preço decimal com até duas casas.") });
@@ -29,6 +30,7 @@ function Detail({ product }: { product: ProductWithDetails }) {
   const queryClient = useQueryClient(); const profiles = usePricingProfiles(true); const prices = useProductPrices(product.id); const calculate = useCalculateProductPrice();
   const calculation = useForm<z.infer<typeof calculationSchema>>({ resolver: zodResolver(calculationSchema), defaultValues: { supplierId: "", profileId: "", manual: "" } });
   const [selected, setSelected] = useState<ProductChannelPrice | null>(null);
+  const [selectedShopee, setSelectedShopee] = useState<ProductChannelPrice | null>(null);
   const defaults = { name: product.name, sku: product.sku || "", brand: product.brand || "", model: product.model || "", ean: product.ean || "", gtin: product.gtin || "", color: product.color || "", dimensions: product.dimensions || "", description: product.description || "", status: product.status };
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<z.infer<typeof schema>>({ resolver: zodResolver(schema), defaultValues: defaults });
   const save = handleSubmit(async values => { try { const payload = Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value === "" ? null : value])); await apiClient.patch(`/api/v1/products/${product.id}`, payload); await queryClient.invalidateQueries({ queryKey: ["product", product.id] }); queryClient.invalidateQueries({ queryKey: ["products"] }); toast.success("Produto atualizado."); } catch (e) { toast.error(errorMessage(e)); } });
@@ -41,11 +43,13 @@ function Detail({ product }: { product: ProductWithDetails }) {
     <label className="block">Origem do custo<select className="block w-full border p-2" {...calculation.register("supplierId")}><option value="">Selecione explicitamente o fornecedor</option>{product.supplier_data.filter(s => s.is_active && s.supplier?.is_active && s.current_cost !== null).map(s => <option key={s.id} value={s.id}>{s.supplier?.name} · {formatCurrency(s.current_cost)}</option>)}</select></label>
     <label className="block">Perfil<select className="block w-full border p-2" {...calculation.register("profileId")}><option value="">Selecione um perfil</option>{profiles.data?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><label className="block">Preço manual opcional<Input inputMode="decimal" {...calculation.register("manual")} /></label>
     <Button type="submit" disabled={calculate.isPending}>Calcular</Button>{Object.keys(calculation.formState.errors).length > 0 && <p role="alert">Selecione fornecedor, perfil e confira o preço manual.</p>}</form>
-    {prices.isError && <QueryError error={prices.error} retry={() => prices.refetch()} />}{!prices.isLoading && !prices.isError && !prices.data?.length && <p>Nenhum preço calculado.</p>}
-    {prices.data?.map(price => <div className="rounded border p-4 space-y-3" key={price.id}><p>{price.profile_name} · {formatCurrency(price.calculated_price)} {price.is_stale && "· DESATUALIZADO: recalcule"}</p>{price.breakdown && <DREBreakdownCard dre={price.breakdown} suggestedPrice={price.calculated_price} />}{price.channel === "MERCADO_LIVRE" && <Button disabled={price.is_stale || product.status !== "ACTIVE"} onClick={() => setSelected(price)}>Revisar publicação</Button>}</div>)}
+    {prices.isError && <QueryError error={prices.error} retry={() => profiles.refetch()} />}{!prices.isLoading && !prices.isError && !prices.data?.length && <p>Nenhum preço calculado.</p>}
+    {prices.data?.map(price => <div className="rounded border p-4 space-y-3" key={price.id}><p>{price.profile_name} · {formatCurrency(price.calculated_price)} {price.is_stale && "· DESATUALIZADO: recalcule"}</p>{price.breakdown && <DREBreakdownCard dre={price.breakdown} suggestedPrice={price.calculated_price} />}{price.channel === "MERCADO_LIVRE" && <Button disabled={price.is_stale || product.status !== "ACTIVE"} onClick={() => setSelected(price)}>Revisar publicação</Button>}{price.channel === "SHOPEE" && <Button className="bg-orange-600 hover:bg-orange-700 text-white" disabled={price.is_stale || product.status !== "ACTIVE"} onClick={() => setSelectedShopee(price)}>Publicar na Shopee</Button>}</div>)}
     <PublishDialog open={!!selected} onOpenChange={open => { if (!open) setSelected(null); }} product={product} selectedChannelPrice={selected} />
+    <PublishShopeeDialog open={!!selectedShopee} onOpenChange={open => { if (!open) setSelectedShopee(null); }} product={product} selectedChannelPrice={selectedShopee} />
   </div>;
 }
+
 
 const linkSchema = z.object({ is_active: z.boolean(), activation_reason: z.string().trim().min(1).max(2000) });
 function SupplierLinkEditor({ productId, link }: { productId: string; link: ProductSupplierData }) {

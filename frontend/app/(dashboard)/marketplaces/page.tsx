@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useMarketplacesOverview, useDisconnectAccount } from "@/hooks/use-marketplaces";
+import { useMarketplacesOverview, useDisconnectAccount, useShopeeConfiguration } from "@/hooks/use-marketplaces";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +32,9 @@ export default function MarketplacesPage() {
   const [connecting, setConnecting] = useState(false);
   const [showConfigDetails, setShowConfigDetails] = useState(false);
 
+  const [connectingShopee, setConnectingShopee] = useState(false);
+  const [showShopeeConfigDetails, setShowShopeeConfigDetails] = useState(false);
+
   const configuration = useQuery({
     queryKey: ["mercadolivre-configuration"],
     queryFn: () =>
@@ -40,9 +43,15 @@ export default function MarketplacesPage() {
       ),
   });
 
+  const shopeeConfiguration = useShopeeConfiguration();
+
   const meliAccounts =
     query.data?.accounts.filter((acc) => acc.marketplace === "MERCADO_LIVRE" && acc.is_active) || [];
   const hasConnectedAccount = meliAccounts.length > 0;
+
+  const shopeeAccounts =
+    query.data?.accounts.filter((acc) => acc.marketplace === "SHOPEE" && acc.is_active) || [];
+  const hasConnectedShopee = shopeeAccounts.length > 0;
 
   const handleAuthorize = async () => {
     setConnecting(true);
@@ -54,6 +63,19 @@ export default function MarketplacesPage() {
     } catch (e) {
       toast.error(errorMessage(e));
       setConnecting(false);
+    }
+  };
+
+  const handleAuthorizeShopee = async () => {
+    setConnectingShopee(true);
+    try {
+      const result = await apiClient.get<{ auth_url: string }>(
+        "/api/v1/marketplaces/shopee/auth-url"
+      );
+      window.location.assign(result.auth_url);
+    } catch (e) {
+      toast.error(errorMessage(e));
+      setConnectingShopee(false);
     }
   };
 
@@ -255,25 +277,161 @@ export default function MarketplacesPage() {
         )}
       </div>
 
-      {/* Canais Futuros (Shopee, Amazon, TikTok) - Apresentação limpa e moderna */}
+      {/* Seção Canal Shopee */}
       <div className="space-y-4 pt-4 border-t">
-        <h3 className="text-lg font-semibold text-muted-foreground">Outros Canais Multicanal</h3>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Card className="bg-muted/10 opacity-75">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-semibold">Shopee</CardTitle>
-                <Badge variant="outline" className="text-xs">Em breve</Badge>
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold flex items-center gap-2">
+            <ShoppingBag className="h-5 w-5 text-orange-500" />
+            Canal Shopee
+          </h3>
+          {hasConnectedShopee && (
+            <Badge className="bg-orange-600 hover:bg-orange-700 text-white flex items-center gap-1">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Conectado
+            </Badge>
+          )}
+        </div>
+
+        {hasConnectedShopee ? (
+          <div className="grid gap-4">
+            {shopeeAccounts.map((account) => (
+              <Card key={account.id} className="border-orange-200 bg-orange-50/20 dark:bg-orange-950/10">
+                <CardHeader className="pb-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                      <CardTitle className="text-xl flex items-center gap-2">
+                        <span>{account.account_name}</span>
+                        <Badge variant="outline" className="text-orange-700 border-orange-300">
+                          {account.site_id || "BR"}
+                        </Badge>
+                      </CardTitle>
+                      <CardDescription className="mt-1">
+                        Shop ID: <span className="font-mono">{account.seller_id}</span>
+                        {account.verified_at && (
+                          <> · Verificado em: {formatDate(account.verified_at)}</>
+                        )}
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button asChild size="sm" className="bg-orange-600 hover:bg-orange-700 text-white">
+                        <Link href="/publications">
+                          <Send className="mr-2 h-4 w-4" />
+                          Ver Publicações
+                        </Link>
+                      </Button>
+                      <Button asChild size="sm" variant="outline">
+                        <Link href="/products">
+                          <ShoppingBag className="mr-2 h-4 w-4" />
+                          Publicar Produtos
+                        </Link>
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        disabled={disconnect.isPending}
+                        onClick={() => handleDisconnect(account.id, account.account_name)}
+                        title="Desconectar loja"
+                      >
+                        <Unlink className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+
+                {account.connection_error && (
+                  <CardContent className="pt-0 pb-3">
+                    <div className="rounded-md bg-rose-50 border border-rose-200 p-3 text-sm text-rose-700 flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      <span>{account.connection_error}</span>
+                    </div>
+                  </CardContent>
+                )}
+              </Card>
+            ))}
+
+            <div className="flex flex-wrap items-center justify-between text-xs text-muted-foreground pt-1 px-1">
+              <span>Sua loja Shopee está apta para publicar e validar anúncios multicanal.</span>
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setShowShopeeConfigDetails(!showShopeeConfigDetails)}
+                >
+                  {showShopeeConfigDetails ? <ChevronUp className="h-3 w-3 mr-1" /> : <ChevronDown className="h-3 w-3 mr-1" />}
+                  {showShopeeConfigDetails ? "Ocultar detalhes técnicos" : "Ver dados da aplicação Shopee"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  disabled={connectingShopee}
+                  onClick={handleAuthorizeShopee}
+                >
+                  <PlusCircle className="h-3 w-3 mr-1" />
+                  Conectar outra loja
+                </Button>
               </div>
-              <CardDescription className="text-xs mt-1">
-                Fase 4 do planejamento multicanal.
+            </div>
+
+            {showShopeeConfigDetails && shopeeConfiguration.data && (
+              <div className="rounded-lg border bg-muted/30 p-4 text-xs space-y-2 text-muted-foreground">
+                <p className="font-semibold text-foreground">Configuração da Shopee Open API v2:</p>
+                <p>Partner ID: <span className="font-mono">{shopeeConfiguration.data.partner_id || "Não informado"}</span></p>
+                <p className="break-all">Redirect URI: <span className="font-mono">{shopeeConfiguration.data.redirect_uri || "Não informado"}</span></p>
+                {shopeeConfiguration.data.issues.map((issue) => (
+                  <p key={issue} className="text-destructive font-medium">{issue}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <Card className="border-dashed border-2">
+            <CardHeader>
+              <CardTitle className="text-lg">Conectar sua loja da Shopee</CardTitle>
+              <CardDescription>
+                Vincule sua loja oficial na Shopee (Open API v2) para publicar anúncios automáticos e sincronizar preços.
               </CardDescription>
             </CardHeader>
-            <CardContent className="text-xs text-muted-foreground">
-              Integração via Shopee Open Platform planejada para a próxima etapa.
+            <CardContent className="space-y-4">
+              {shopeeConfiguration.isError && (
+                <QueryError error={shopeeConfiguration.error} retry={() => shopeeConfiguration.refetch()} />
+              )}
+              {shopeeConfiguration.data && shopeeConfiguration.data.issues.length > 0 && (
+                <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800 space-y-1">
+                  {shopeeConfiguration.data.issues.map((issue) => (
+                    <p key={issue}>• {issue}</p>
+                  ))}
+                </div>
+              )}
+              <p className="text-sm text-muted-foreground">
+                A autorização é realizada com assinatura HMAC-SHA256 no portal seguro de parceiros da Shopee.
+              </p>
             </CardContent>
+            <CardFooter className="flex justify-between items-center">
+              <Button
+                disabled={connectingShopee || (shopeeConfiguration.data && !shopeeConfiguration.data.ready)}
+                onClick={handleAuthorizeShopee}
+                className="bg-orange-600 hover:bg-orange-700 text-white font-semibold"
+              >
+                <ExternalLink className="mr-2 h-4 w-4" />
+                {connectingShopee ? "Redirecionando..." : "Autorizar Loja na Shopee"}
+              </Button>
+              {shopeeConfiguration.data && (
+                <span className="text-xs text-muted-foreground">
+                  Partner ID: {shopeeConfiguration.data.partner_id || "Não configurado"}
+                </span>
+              )}
+            </CardFooter>
           </Card>
+        )}
+      </div>
 
+      {/* Canais Futuros (Amazon, TikTok) */}
+      <div className="space-y-4 pt-4 border-t">
+        <h3 className="text-lg font-semibold text-muted-foreground">Outros Canais Multicanal</h3>
+        <div className="grid gap-4 sm:grid-cols-2">
           <Card className="bg-muted/10 opacity-75">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">

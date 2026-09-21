@@ -61,6 +61,7 @@ class PublishProductRequest(BaseModel):
     request_id: UUID
     title: str = Field(..., min_length=1, max_length=60)
     category_id: str = Field(..., pattern=r"^MLB[0-9]+$")
+
     listing_type_id: Literal["gold_special", "gold_pro"]
     available_quantity: int = Field(..., ge=1)
     condition: Literal["new", "used", "not_specified"]
@@ -93,3 +94,56 @@ class MarketplaceListingResponse(BaseModel):
 class MarketplaceListingListResponse(BaseModel):
     items: list[MarketplaceListingResponse]
     total: int
+
+
+class ShopeeConfigurationResponse(BaseModel):
+    partner_id: int | None
+    redirect_uri: str | None
+    ready: bool
+    issues: list[str]
+
+
+class ShopeeOAuthCallbackRequest(BaseModel):
+    code: str
+    shop_id: int
+    state: str = Field(..., min_length=20, max_length=200)
+
+
+class ShopeeCategoryItem(BaseModel):
+    category_id: int
+    parent_category_id: int
+    original_category_name: str
+    display_category_name: str
+    has_children: bool
+
+
+class ShopeeAttributeValue(BaseModel):
+    value_id: int
+    original_value_name: str
+    display_value_name: str
+    value_unit: Optional[str] = None
+
+
+class ShopeeAttributeItem(BaseModel):
+    attribute_id: int
+    original_attribute_name: str
+    display_attribute_name: str
+    is_mandatory: bool
+    input_validation_type: Optional[str] = None
+    format_type: Optional[str] = None
+    date_format_type: Optional[str] = None
+    input_type: Optional[str] = None
+    attribute_unit: Optional[list[str]] = None
+    attribute_value_list: Optional[list[ShopeeAttributeValue]] = None
+
+
+class PublishShopeeProductRequest(BaseModel):
+    product_id: UUID
+    account_id: UUID
+    pricing_profile_id: UUID
+    request_id: UUID
+    title: str = Field(..., min_length=1, max_length=120)
+    category_id: int = Field(..., ge=1)
+    available_quantity: int = Field(..., ge=1)
+    description: Optional[str] = None
+    attributes: Optional[list[dict[str, Any]]] = None

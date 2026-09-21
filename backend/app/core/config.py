@@ -42,11 +42,30 @@ class Settings(BaseSettings):
     MERCADOLIVRE_CLIENT_SECRET: str | None = None
     MERCADOLIVRE_REDIRECT_URI: str | None = None
 
-    @field_validator("MERCADOLIVRE_APP_ID", "MERCADOLIVRE_CLIENT_SECRET", "MERCADOLIVRE_REDIRECT_URI", mode="before")
+    # Shopee Integration (Fase 4)
+    SHOPEE_PARTNER_ID: int | None = None
+    SHOPEE_PARTNER_KEY: str | None = None
+    SHOPEE_REDIRECT_URI: str | None = None
+    SHOPEE_API_URL: str = "https://partner.shopeemobile.com"
+
+    @field_validator(
+        "MERCADOLIVRE_APP_ID", "MERCADOLIVRE_CLIENT_SECRET", "MERCADOLIVRE_REDIRECT_URI",
+        "SHOPEE_PARTNER_KEY", "SHOPEE_REDIRECT_URI", mode="before"
+    )
     @classmethod
     def _strip_credential(cls, value):
         # Spaces, CRLF or wrapping quotes pasted into .env make the provider answer invalid_client.
         return value.strip().strip("\"'").strip() or None if isinstance(value, str) else value
+
+    @field_validator("SHOPEE_PARTNER_ID", mode="before")
+    @classmethod
+    def _parse_partner_id(cls, value):
+        if value is None or value == "":
+            return None
+        if isinstance(value, str):
+            clean = value.strip().strip("\"'").strip()
+            return int(clean) if clean.isdigit() else None
+        return int(value)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

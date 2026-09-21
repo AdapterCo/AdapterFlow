@@ -52,26 +52,57 @@ class MercadoLivreService:
         return self.client.get_authorization_url(state), browser
 
     async def get_overview(self, session):
+        from app.integrations.shopee.client import ShopeeClient
+        shopee_client = ShopeeClient()
         accounts = await self.repo.list_accounts(session)
         for account in accounts:
-            if account.marketplace != "MERCADO_LIVRE" or not account.is_active:
+            if not account.is_active:
                 continue
-            try:
-                token, _ = await self.get_valid_access_token(session, account.id)
-                user = await self.client.get_user_info(token)
-                if str(user.get("id")) != account.seller_id:
-                    raise HTTPException(409, "Identidade da conta divergente.")
-                account.verified_at = datetime.now(timezone.utc)
-                account.connection_error = None
-            except Exception:
-                account.verified_at = None
-                account.connection_error = "Não foi possível verificar a conexão. Reconecte ou tente novamente."
-        connected = [a for a in accounts if a.marketplace == "MERCADO_LIVRE" and a.is_active and a.verified_at and not a.connection_error]
-        channels = [MarketplaceChannelStatus(marketplace="MERCADO_LIVRE", name="Mercado Livre",
-            is_configured=self.client.is_configured() and bool(settings.TOKEN_ENCRYPTION_KEY),
-            is_connected=bool(connected), accounts_count=len(connected), auth_url=None)]
-        for code, name in (("SHOPEE", "Shopee"), ("AMAZON", "Amazon Brasil"), ("TIKTOK", "TikTok Shop")):
-            channels.append(MarketplaceChannelStatus(marketplace=code, name=name, is_configured=False, is_connected=False, accounts_count=0))
+            if account.marketplace == "MERCADO_LIVRE":
+                try:
+                    token, _ = await self.get_valid_access_token(session, account.id)
+                    user = await self.client.get_user_info(token)
+                    if str(user.get("id")) != account.seller_id:
+                        raise HTTPException(409, "Identidade da conta divergente.")
+                    account.verified_at = datetime.now(timezone.utc)
+                    account.connection_error = None
+                except Exception:
+                    account.verified_at = None
+                    account.connection_error = "Não foi possível verificar a conexão. Reconecte ou tente novamente."
+            elif account.marketplace == "SHOPEE":
+                try:
+                    from app.services.shopee_service import ShopeeService
+                    shopee_svc = ShopeeService()
+                    token, shop_id, _ = await shopee_svc.get_valid_access_token(session, account.id)
+                    await shopee_client.get_shop_info(token, shop_id)
+                    account.verified_at = datetime.now(timezone.utc)
+                    account.connection_error = None
+                except Exception:
+                    account.verified_at = None
+                    account.connection_error = "Não foi possível verificar a conexão com a Shopee. Reconecte a conta."
+
+        meli_connected = [a for a in accounts if a.marketplace == "MERCADO_LIVRE" and a.is_active and a.verified_at and not a.connection_error]
+        shopee_connected = [a for a in accounts if a.marketplace == "SHOPEE" and a.is_active and a.verified_at and not a.connection_error]
+        channels = [
+            MarketplaceChannelStatus(
+                marketplace="MERCADO_LIVRE",
+                name="Mercado Livre",
+                is_configured=self.client.is_configured() and bool(settings.TOKEN_ENCRYPTION_KEY),
+                is_connected=bool(meli_connected),
+                accounts_count=len(meli_connected),
+                auth_url=None,
+            ),
+            MarketplaceChannelStatus(
+                marketplace="SHOPEE",
+                name="Shopee",
+                is_configured=shopee_client.is_configured() and bool(settings.TOKEN_ENCRYPTION_KEY),
+                is_connected=bool(shopee_connected),
+                accounts_count=len(shopee_connected),
+                auth_url=None,
+            ),
+            MarketplaceChannelStatus(marketplace="AMAZON", name="Amazon Brasil", is_configured=False, is_connected=False, accounts_count=0),
+            MarketplaceChannelStatus(marketplace="TIKTOK", name="TikTok Shop", is_configured=False, is_connected=False, accounts_count=0),
+        ]
         await session.flush()
         return MarketplacesOverviewResponse(channels=channels, accounts=[MarketplaceAccountResponse.model_validate(a) for a in accounts])
 

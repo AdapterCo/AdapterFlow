@@ -31,3 +31,56 @@ export type CategoryPredictionItem = Schema["CategoryPredictionItem"];
 export type PublishProductRequest = Schema["PublishProductRequest"];
 export type MarketplaceListing = Schema["MarketplaceListingResponse"];
 export type MarketplaceListingListResponse = Schema["MarketplaceListingListResponse"];
+
+export interface ShopeeConfigurationResponse {
+  partner_id: number | null;
+  redirect_uri: string | null;
+  ready: boolean;
+  issues: string[];
+}
+
+export interface ShopeeOAuthCallbackRequest {
+  code: string;
+  shop_id: number;
+  state: string;
+}
+
+export interface ShopeeCategoryItem {
+  category_id: number;
+  parent_category_id: number;
+  original_category_name: string;
+  display_category_name: string;
+  has_children: boolean;
+}
+
+export interface ShopeeAttributeValue {
+  value_id: number;
+  original_value_name: string;
+  display_value_name: string;
+  value_unit?: string | null;
+}
+
+export interface ShopeeAttributeItem {
+  attribute_id: number;
+  original_attribute_name: string;
+  display_attribute_name: string;
+  is_mandatory: boolean;
+  input_validation_type?: string | null;
+  format_type?: string | null;
+  date_format_type?: string | null;
+  input_type?: string | null;
+  attribute_unit?: string[] | null;
+  attribute_value_list?: ShopeeAttributeValue[] | null;
+}
+
+export interface PublishShopeeProductRequest {
+  product_id: string;
+  account_id: string;
+  pricing_profile_id: string;
+  request_id: string;
+  title: string;
+  category_id: number;
+  available_quantity: number;
+  description?: string | null;
+  attributes?: Record<string, any>[] | null;
+}
