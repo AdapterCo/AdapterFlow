@@ -163,3 +163,65 @@ export function usePublishToShopee() {
   });
 }
 
+export function useMarketplaceCredentials() {
+  return useQuery({
+    queryKey: ["marketplace-credentials"],
+    queryFn: () =>
+      apiClient.get<import("@/types").MarketplaceCredentialResponse[]>(
+        "/api/v1/marketplaces/credentials"
+      ),
+  });
+}
+
+export function useMarketplaceCredential(marketplace: string) {
+  return useQuery({
+    queryKey: ["marketplace-credential", marketplace],
+    queryFn: () =>
+      apiClient.get<import("@/types").MarketplaceCredentialResponse>(
+        `/api/v1/marketplaces/credentials/${marketplace}`
+      ),
+    enabled: !!marketplace,
+  });
+}
+
+export function useUpdateMarketplaceCredential() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      marketplace,
+      data,
+    }: {
+      marketplace: string;
+      data: import("@/types").MarketplaceCredentialUpsert;
+    }) =>
+      apiClient.put<import("@/types").MarketplaceCredentialResponse>(
+        `/api/v1/marketplaces/credentials/${marketplace}`,
+        data
+      ),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["marketplace-credentials"] });
+      queryClient.invalidateQueries({ queryKey: ["marketplace-credential", variables.marketplace] });
+      queryClient.invalidateQueries({ queryKey: ["marketplaces-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["mercadolivre-configuration"] });
+      queryClient.invalidateQueries({ queryKey: ["shopee-configuration"] });
+    },
+  });
+}
+
+export function useDeleteMarketplaceCredential() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (marketplace: string) =>
+      apiClient.delete(`/api/v1/marketplaces/credentials/${marketplace}`),
+    onSuccess: (_, marketplace) => {
+      queryClient.invalidateQueries({ queryKey: ["marketplace-credentials"] });
+      queryClient.invalidateQueries({ queryKey: ["marketplace-credential", marketplace] });
+      queryClient.invalidateQueries({ queryKey: ["marketplaces-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["mercadolivre-configuration"] });
+      queryClient.invalidateQueries({ queryKey: ["shopee-configuration"] });
+    },
+  });
+}
+

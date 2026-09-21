@@ -4,7 +4,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.marketplace import MarketplaceAccount, MarketplaceListing
+from app.models.marketplace import MarketplaceAccount, MarketplaceListing, MarketplacePlatformCredential
 
 
 class MarketplaceRepository:
@@ -160,3 +160,98 @@ class MarketplaceRepository:
 
         result = await session.execute(stmt)
         return result.scalar() or 0
+
+    async def get_platform_credential(
+        self, session: AsyncSession | None, marketplace: str
+    ) -> MarketplacePlatformCredential | None:
+        if session is None:
+            return None
+        try:
+            stmt = select(MarketplacePlatformCredential).where(
+                MarketplacePlatformCredential.marketplace == marketplace.upper()
+            )
+            result = await session.execute(stmt)
+            if hasattr(result, "__await__"):
+                result = await result
+            if hasattr(result, "scalar_one_or_none"):
+                res = result.scalar_one_or_none()
+                if hasattr(res, "__await__"):
+                    res = await res
+                if isinstance(res, MarketplacePlatformCredential):
+                    return res
+            return None
+        except Exception:
+            return None
+
+    async def list_platform_credentials(
+        self, session: AsyncSession | None
+    ) -> list[MarketplacePlatformCredential]:
+        if session is None:
+            return []
+        try:
+            stmt = select(MarketplacePlatformCredential).order_by(MarketplacePlatformCredential.marketplace)
+            result = await session.execute(stmt)
+            if hasattr(result, "__await__"):
+                result = await result
+            if hasattr(result, "scalars"):
+                res = result.scalars()
+                if hasattr(res, "__await__"):
+                    res = await res
+                if hasattr(res, "all"):
+                    all_res = res.all()
+                    if hasattr(all_res, "__await__"):
+                        all_res = await all_res
+                    return [x for x in all_res if isinstance(x, MarketplacePlatformCredential)]
+            return []
+        except Exception:
+            return []
+
+    async def upsert_platform_credential(
+        self,
+        session: AsyncSession,
+        marketplace: str,
+        app_id: str,
+        app_secret_encrypted: str | None = None,
+        redirect_uri: str | None = None,
+        api_url: str | None = None,
+    ) -> MarketplacePlatformCredential:
+        marketplace_norm = marketplace.upper()
+        stmt = select(MarketplacePlatformCredential).where(
+            MarketplacePlatformCredential.marketplace == marketplace_norm
+        )
+        result = await session.execute(stmt)
+        if hasattr(result, "__await__"):
+            result = await result
+        if hasattr(result, "scalar_one_or_none"):
+            cred = result.scalar_one_or_none()
+            if hasattr(cred, "__await__"):
+                cred = await cred
+        else:
+            cred = None
+
+        if not isinstance(cred, MarketplacePlatformCredential):
+            cred = None
+
+        if cred:
+            cred.app_id = app_id
+            if app_secret_encrypted is not None:
+                cred.app_secret_encrypted = app_secret_encrypted
+            if redirect_uri is not None:
+                cred.redirect_uri = redirect_uri
+            if api_url is not None:
+                cred.api_url = api_url
+            cred.is_active = True
+        else:
+            cred = MarketplacePlatformCredential(
+                marketplace=marketplace_norm,
+                app_id=app_id,
+                app_secret_encrypted=app_secret_encrypted,
+                redirect_uri=redirect_uri,
+                api_url=api_url,
+                is_active=True,
+            )
+            session.add(cred)
+
+        await session.flush()
+        await session.refresh(cred)
+        return cred

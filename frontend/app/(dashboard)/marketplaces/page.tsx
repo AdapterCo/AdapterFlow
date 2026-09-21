@@ -23,8 +23,10 @@ import {
   ChevronUp,
   ShoppingBag,
   Send,
-  Unlink
+  Unlink,
+  KeyRound,
 } from "lucide-react";
+import { MarketplaceCredentialsDialog } from "@/components/marketplaces/marketplace-credentials-dialog";
 
 export default function MarketplacesPage() {
   const query = useMarketplacesOverview();
@@ -34,6 +36,7 @@ export default function MarketplacesPage() {
 
   const [connectingShopee, setConnectingShopee] = useState(false);
   const [showShopeeConfigDetails, setShowShopeeConfigDetails] = useState(false);
+  const [credentialMarketplace, setCredentialMarketplace] = useState<"MERCADO_LIVRE" | "SHOPEE" | null>(null);
 
   const configuration = useQuery({
     queryKey: ["mercadolivre-configuration"],
@@ -129,12 +132,23 @@ export default function MarketplacesPage() {
             <Store className="h-5 w-5 text-amber-500" />
             Canal Mercado Livre
           </h3>
-          {hasConnectedAccount && (
-            <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Conectado
-            </Badge>
-          )}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs flex items-center gap-1.5"
+              onClick={() => setCredentialMarketplace("MERCADO_LIVRE")}
+            >
+              <KeyRound className="h-3.5 w-3.5 text-amber-500" />
+              Credenciais da API
+            </Button>
+            {hasConnectedAccount && (
+              <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Conectado
+              </Badge>
+            )}
+          </div>
         </div>
 
         {hasConnectedAccount ? (
@@ -258,15 +272,25 @@ export default function MarketplacesPage() {
                 A autorização é feita diretamente no site seguro do Mercado Livre via OAuth 2.0.
               </p>
             </CardContent>
-            <CardFooter className="flex justify-between items-center">
-              <Button
-                disabled={connecting || (configuration.data && !configuration.data.ready)}
-                onClick={handleAuthorize}
-                className="bg-amber-500 hover:bg-amber-600 text-black font-semibold"
-              >
-                <ExternalLink className="mr-2 h-4 w-4" />
-                {connecting ? "Redirecionando..." : "Autorizar Conta no Mercado Livre"}
-              </Button>
+            <CardFooter className="flex justify-between items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Button
+                  disabled={connecting || (configuration.data && !configuration.data.ready)}
+                  onClick={handleAuthorize}
+                  className="bg-amber-500 hover:bg-amber-600 text-black font-semibold"
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  {connecting ? "Redirecionando..." : "Autorizar Conta no Mercado Livre"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCredentialMarketplace("MERCADO_LIVRE")}
+                >
+                  <KeyRound className="mr-1.5 h-3.5 w-3.5 text-amber-500" />
+                  Configurar Credenciais
+                </Button>
+              </div>
               {configuration.data && (
                 <span className="text-xs text-muted-foreground">
                   App ID: {configuration.data.app_id || "Não configurado"}
@@ -284,12 +308,23 @@ export default function MarketplacesPage() {
             <ShoppingBag className="h-5 w-5 text-orange-500" />
             Canal Shopee
           </h3>
-          {hasConnectedShopee && (
-            <Badge className="bg-orange-600 hover:bg-orange-700 text-white flex items-center gap-1">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Conectado
-            </Badge>
-          )}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs flex items-center gap-1.5"
+              onClick={() => setCredentialMarketplace("SHOPEE")}
+            >
+              <KeyRound className="h-3.5 w-3.5 text-orange-500" />
+              Credenciais da API
+            </Button>
+            {hasConnectedShopee && (
+              <Badge className="bg-orange-600 hover:bg-orange-700 text-white flex items-center gap-1">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Conectado
+              </Badge>
+            )}
+          </div>
         </div>
 
         {hasConnectedShopee ? (
@@ -409,15 +444,25 @@ export default function MarketplacesPage() {
                 A autorização é realizada com assinatura HMAC-SHA256 no portal seguro de parceiros da Shopee.
               </p>
             </CardContent>
-            <CardFooter className="flex justify-between items-center">
-              <Button
-                disabled={connectingShopee || (shopeeConfiguration.data && !shopeeConfiguration.data.ready)}
-                onClick={handleAuthorizeShopee}
-                className="bg-orange-600 hover:bg-orange-700 text-white font-semibold"
-              >
-                <ExternalLink className="mr-2 h-4 w-4" />
-                {connectingShopee ? "Redirecionando..." : "Autorizar Loja na Shopee"}
-              </Button>
+            <CardFooter className="flex justify-between items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Button
+                  disabled={connectingShopee || (shopeeConfiguration.data && !shopeeConfiguration.data.ready)}
+                  onClick={handleAuthorizeShopee}
+                  className="bg-orange-600 hover:bg-orange-700 text-white font-semibold"
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  {connectingShopee ? "Redirecionando..." : "Autorizar Loja na Shopee"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCredentialMarketplace("SHOPEE")}
+                >
+                  <KeyRound className="mr-1.5 h-3.5 w-3.5 text-orange-500" />
+                  Configurar Credenciais
+                </Button>
+              </div>
               {shopeeConfiguration.data && (
                 <span className="text-xs text-muted-foreground">
                   Partner ID: {shopeeConfiguration.data.partner_id || "Não configurado"}
@@ -463,6 +508,14 @@ export default function MarketplacesPage() {
           </Card>
         </div>
       </div>
+
+      {credentialMarketplace && (
+        <MarketplaceCredentialsDialog
+          marketplace={credentialMarketplace}
+          open={!!credentialMarketplace}
+          onOpenChange={(open) => !open && setCredentialMarketplace(null)}
+        />
+      )}
     </div>
   );
 }

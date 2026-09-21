@@ -41,6 +41,22 @@ class ShopeeService:
         self.product_repo = ProductRepository()
         self.pricing_repo = PricingRepository()
 
+    async def get_client(self, session: AsyncSession | None = None) -> ShopeeClient:
+        if session is None:
+            return self.client
+        cred = await self.repo.get_platform_credential(session, "SHOPEE")
+        if cred and getattr(cred, "is_active", False) and getattr(cred, "app_id", None):
+            partner_key = decrypt_token(cred.app_secret_encrypted) if getattr(cred, "app_secret_encrypted", None) else None
+            app_id_str = str(cred.app_id)
+            partner_id = int(app_id_str) if app_id_str.isdigit() else None
+            return ShopeeClient(
+                partner_id=partner_id,
+                partner_key=partner_key,
+                redirect_uri=cred.redirect_uri or settings.SHOPEE_REDIRECT_URI,
+                base_url=cred.api_url or settings.SHOPEE_API_URL,
+            )
+        return self.client
+
     async def start_oauth(self, session: AsyncSession, owner: str):
         raise HTTPException(501, "Autorização Shopee indisponível até validação oficial do retorno de state. Nenhuma autorização foi iniciada.")
 
@@ -63,14 +79,15 @@ class ShopeeService:
         attempt.consumed_at = datetime.now(timezone.utc)
         await session.commit()
 
-        token_data = await self.client.exchange_token(code, shop_id)
+        client = await self.get_client(session)
+        token_data = await client.exchange_token(code, shop_id)
         access_token = token_data["access_token"]
         refresh_token = token_data["refresh_token"]
         expire_in = token_data.get("expire_in", 14400)
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expire_in)
 
         # Query shop profile to display human-readable account name
-        shop_info = await self.client.get_shop_info(access_token, shop_id)
+        shop_info = await client.get_shop_info(access_token, shop_id)
         shop_name = shop_info.get("shop_name") or f"Loja Shopee {shop_id}"
         region = shop_info.get("region") or "BR"
 
@@ -105,7 +122,8 @@ class ShopeeService:
         # Refresh if close to expiration (within 5 minutes)
         if account.token_expires_at <= datetime.now(timezone.utc) + timedelta(minutes=5):
             try:
-                data = await self.client.refresh_token(decrypt_token(account.refresh_token), shop_id)
+                client = await self.get_client(session)
+                data = await client.refresh_token(decrypt_token(account.refresh_token), shop_id)
                 access_token = data["access_token"]
                 refresh_token = data["refresh_token"]
                 expire_in = data.get("expire_in", 14400)

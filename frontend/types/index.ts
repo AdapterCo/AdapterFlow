@@ -115,3 +115,21 @@ export interface CloneProductRequest {
   status?: "ACTIVE" | "DRAFT";
 }
 
+export interface MarketplaceCredentialResponse {
+  marketplace: string;
+  app_id: string | null;
+  has_secret: boolean;
+  secret_preview: string | null;
+  redirect_uri: string | null;
+  api_url: string | null;
+  is_active: boolean;
+  updated_at: string | null;
+}
+
+export interface MarketplaceCredentialUpsert {
+  app_id: string;
+  app_secret?: string | null;
+  redirect_uri?: string | null;
+  api_url?: string | null;
+}
+

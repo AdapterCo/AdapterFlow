@@ -147,3 +147,21 @@ class PublishShopeeProductRequest(BaseModel):
     available_quantity: int = Field(..., ge=1)
     description: Optional[str] = None
     attributes: Optional[list[dict[str, Any]]] = None
+
+
+class MarketplaceCredentialUpsert(BaseModel):
+    app_id: str = Field(..., min_length=1, max_length=255)
+    app_secret: Optional[str] = None
+    redirect_uri: Optional[str] = None
+    api_url: Optional[str] = None
+
+
+class MarketplaceCredentialResponse(BaseModel):
+    marketplace: str
+    app_id: Optional[str] = None
+    has_secret: bool = False
+    secret_preview: Optional[str] = None
+    redirect_uri: Optional[str] = None
+    api_url: Optional[str] = None
+    is_active: bool = True
+    updated_at: Optional[datetime] = None

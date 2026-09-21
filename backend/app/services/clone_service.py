@@ -68,6 +68,37 @@ class CloneService:
                         return token
             except HTTPException:
                 raise
+            except Exception:
+                pass
+
+        if session is not None:
+            try:
+                from app.models.marketplace import MarketplacePlatformCredential
+                from app.core.tokens import decrypt_token
+                cred = await session.scalar(
+                    select(MarketplacePlatformCredential)
+                    .where(MarketplacePlatformCredential.marketplace == "MERCADO_LIVRE", MarketplacePlatformCredential.is_active == True)
+                    .limit(1)
+                )
+                app_id = cred.app_id if cred and cred.app_id else settings.MERCADOLIVRE_APP_ID
+                app_secret = decrypt_token(cred.app_secret_encrypted) if cred and cred.app_secret_encrypted else (
+                    settings.MERCADOLIVRE_CLIENT_SECRET.get_secret_value() if hasattr(settings.MERCADOLIVRE_CLIENT_SECRET, "get_secret_value") else settings.MERCADOLIVRE_CLIENT_SECRET
+                )
+                if app_id and app_secret:
+                    async with httpx.AsyncClient(timeout=15) as client:
+                        token_res = await client.post(
+                            "https://api.mercadolibre.com/oauth/token",
+                            data={
+                                "grant_type": "client_credentials",
+                                "client_id": app_id,
+                                "client_secret": app_secret,
+                            },
+                        )
+                        if token_res.status_code == 200:
+                            token_json = token_res.json()
+                            return token_json.get("access_token")
+            except Exception:
+                pass
 
         return None
 

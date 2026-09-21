@@ -19,16 +19,21 @@ service = ShopeeService()
 
 
 @router.get("/configuration", response_model=ShopeeConfigurationResponse)
-async def shopee_configuration():
+async def shopee_configuration(db: DBSession):
     """Diagnóstico de configuração da Shopee Open API v2."""
     from app.core.tokens import cipher
 
+    cred = await service.repo.get_platform_credential(db, "SHOPEE") if db else None
+    app_id = str(cred.app_id) if cred and getattr(cred, "app_id", None) else None
+    partner_id = int(app_id) if app_id and app_id.isdigit() else settings.SHOPEE_PARTNER_ID
+    partner_key = bool(cred and getattr(cred, "app_secret_encrypted", None)) or bool(settings.SHOPEE_PARTNER_KEY)
+    redirect = cred.redirect_uri if cred and getattr(cred, "redirect_uri", None) else settings.SHOPEE_REDIRECT_URI
+
     issues = ["Integração incompleta: OAuth e publicação aguardam validação do contrato oficial. Não disponível para novas conexões/publicações."]
-    if not settings.SHOPEE_PARTNER_ID:
-        issues.append("Defina SHOPEE_PARTNER_ID com o Partner ID numérico fornecido pela Shopee.")
-    if not settings.SHOPEE_PARTNER_KEY:
-        issues.append("Defina SHOPEE_PARTNER_KEY com a Partner Key secreta.")
-    redirect = settings.SHOPEE_REDIRECT_URI
+    if not partner_id:
+        issues.append("Configure o Partner ID no menu Marketplaces.")
+    if not partner_key:
+        issues.append("Configure a Partner Key secreta no menu Marketplaces.")
     if not redirect:
         issues.append("Configure SHOPEE_REDIRECT_URI apontando para /marketplaces/callback/shopee.")
     else:
@@ -45,7 +50,7 @@ async def shopee_configuration():
         issues.append(str(exc.detail))
 
     return {
-        "partner_id": settings.SHOPEE_PARTNER_ID,
+        "partner_id": partner_id,
         "redirect_uri": redirect,
         "ready": len(issues) == 0,
         "issues": issues,

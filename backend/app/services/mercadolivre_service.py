@@ -18,6 +18,7 @@ from app.storage.service import StorageService
 from app.schemas.marketplace import (
     MarketplaceAccountResponse, MarketplaceChannelStatus, MarketplacesOverviewResponse,
     MarketplaceListingResponse, MarketplaceListingListResponse, CategoryPredictionItem,
+    MarketplaceCredentialUpsert, MarketplaceCredentialResponse,
 )
 
 
@@ -43,17 +44,113 @@ class MercadoLivreService:
         self.product_repo = ProductRepository()
         self.pricing_repo = PricingRepository()
 
+    async def get_client(self, session: AsyncSession | None = None) -> MercadoLivreClient:
+        if session is None:
+            return self.client
+        cred = await self.repo.get_platform_credential(session, "MERCADO_LIVRE")
+        if cred and getattr(cred, "is_active", False) and getattr(cred, "app_id", None):
+            client_secret = decrypt_token(cred.app_secret_encrypted) if getattr(cred, "app_secret_encrypted", None) else None
+            return MercadoLivreClient(
+                app_id=str(cred.app_id),
+                client_secret=client_secret,
+                redirect_uri=cred.redirect_uri or settings.MERCADOLIVRE_REDIRECT_URI,
+            )
+        return self.client
+
+    async def list_credentials_safe(self, session: AsyncSession) -> list[MarketplaceCredentialResponse]:
+        supported = ["SHOPEE", "MERCADO_LIVRE"]
+        items = []
+        for mp in supported:
+            items.append(await self.get_credential_safe(session, mp))
+        return items
+
+    async def get_credential_safe(self, session: AsyncSession, marketplace: str) -> MarketplaceCredentialResponse:
+        mp_norm = marketplace.upper()
+        cred = await self.repo.get_platform_credential(session, mp_norm)
+
+        app_id = cred.app_id if cred and cred.app_id else (
+            settings.SHOPEE_PARTNER_ID if mp_norm == "SHOPEE" else settings.MERCADOLIVRE_APP_ID
+        )
+        app_id_str = str(app_id) if app_id is not None else None
+
+        has_secret = False
+        secret_preview = None
+        if cred and cred.app_secret_encrypted:
+            has_secret = True
+            try:
+                dec = decrypt_token(cred.app_secret_encrypted)
+                secret_preview = f"••••••••{dec[-4:]}" if len(dec) >= 6 else "••••••••"
+            except Exception:
+                secret_preview = "••••••••"
+        elif mp_norm == "SHOPEE" and settings.SHOPEE_PARTNER_KEY:
+            has_secret = True
+            secret_preview = f"••••••••{settings.SHOPEE_PARTNER_KEY[-4:]}"
+        elif mp_norm == "MERCADO_LIVRE" and settings.MERCADOLIVRE_CLIENT_SECRET:
+            has_secret = True
+            secret_preview = f"••••••••{settings.MERCADOLIVRE_CLIENT_SECRET[-4:]}"
+
+        redirect_uri = cred.redirect_uri if cred and cred.redirect_uri else (
+            settings.SHOPEE_REDIRECT_URI if mp_norm == "SHOPEE" else settings.MERCADOLIVRE_REDIRECT_URI
+        )
+        api_url = cred.api_url if cred and cred.api_url else (
+            settings.SHOPEE_API_URL if mp_norm == "SHOPEE" else "https://api.mercadolibre.com"
+        )
+        is_active = cred.is_active if cred else True
+        updated_at = cred.updated_at or cred.created_at if cred else None
+
+        return MarketplaceCredentialResponse(
+            marketplace=mp_norm,
+            app_id=app_id_str,
+            has_secret=has_secret,
+            secret_preview=secret_preview,
+            redirect_uri=redirect_uri,
+            api_url=api_url,
+            is_active=is_active,
+            updated_at=updated_at,
+        )
+
+    async def save_credential(
+        self, session: AsyncSession, marketplace: str, payload: MarketplaceCredentialUpsert
+    ) -> MarketplaceCredentialResponse:
+        cipher()
+        mp_norm = marketplace.upper()
+        if mp_norm not in ("SHOPEE", "MERCADO_LIVRE"):
+            raise HTTPException(400, f"Marketplace '{marketplace}' não suportado.")
+
+        encrypted_secret = None
+        if payload.app_secret and payload.app_secret.strip():
+            encrypted_secret = encrypt_token(payload.app_secret.strip())
+
+        await self.repo.upsert_platform_credential(
+            session=session,
+            marketplace=mp_norm,
+            app_id=payload.app_id.strip(),
+            app_secret_encrypted=encrypted_secret,
+            redirect_uri=payload.redirect_uri.strip() if payload.redirect_uri else None,
+            api_url=payload.api_url.strip() if payload.api_url else None,
+        )
+        await session.commit()
+        return await self.get_credential_safe(session, mp_norm)
+
+    async def delete_credential(self, session: AsyncSession, marketplace: str) -> None:
+        mp_norm = marketplace.upper()
+        cred = await self.repo.get_platform_credential(session, mp_norm)
+        if cred:
+            await session.delete(cred)
+            await session.commit()
+
     async def start_oauth(self, session, owner):
         cipher()  # Fail before asking the seller to authorize insecure storage.
+        client = await self.get_client(session)
         state, browser = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         session.add(OAuthAttempt(state_hash=digest(state), browser_hash=digest(browser), owner=owner,
                                  expires_at=datetime.now(timezone.utc) + timedelta(minutes=10)))
         await session.flush()
-        return self.client.get_authorization_url(state), browser
+        return client.get_authorization_url(state), browser
 
     async def get_overview(self, session):
-        from app.integrations.shopee.client import ShopeeClient
-        shopee_client = ShopeeClient()
+        from app.services.shopee_service import ShopeeService
+        shopee_svc = ShopeeService()
         accounts = await self.repo.list_accounts(session)
         for account in accounts:
             if not account.is_active:
@@ -61,7 +158,8 @@ class MercadoLivreService:
             if account.marketplace == "MERCADO_LIVRE":
                 try:
                     token, _ = await self.get_valid_access_token(session, account.id)
-                    user = await self.client.get_user_info(token)
+                    client = await self.get_client(session)
+                    user = await client.get_user_info(token)
                     if str(user.get("id")) != account.seller_id:
                         raise HTTPException(409, "Identidade da conta divergente.")
                     account.verified_at = datetime.now(timezone.utc)
@@ -71,13 +169,12 @@ class MercadoLivreService:
                     account.connection_error = "Não foi possível verificar a conexão. Reconecte ou tente novamente."
             elif account.marketplace == "SHOPEE":
                 try:
-                    from app.services.shopee_service import ShopeeService
-                    shopee_svc = ShopeeService()
+                    token, shop_id, _ = await shopee_svc.get_valid_access_token(session, account.id)
+                    client = await shopee_svc.get_client(session)
                     try:
-                        token, shop_id, _ = await shopee_svc.get_valid_access_token(session, account.id)
-                        await shopee_svc.client.get_shop_info(token, shop_id)
+                        await client.get_shop_info(token, shop_id)
                     finally:
-                        await shopee_svc.client.close()
+                        await client.close()
                     account.verified_at = datetime.now(timezone.utc)
                     account.connection_error = None
                 except Exception:
@@ -86,11 +183,20 @@ class MercadoLivreService:
 
         meli_connected = [a for a in accounts if a.marketplace == "MERCADO_LIVRE" and a.is_active and a.verified_at and not a.connection_error]
         shopee_connected = [a for a in accounts if a.marketplace == "SHOPEE" and a.is_active and a.verified_at and not a.connection_error]
+
+        meli_cred = await self.repo.get_platform_credential(session, "MERCADO_LIVRE")
+        shopee_cred = await self.repo.get_platform_credential(session, "SHOPEE")
+        meli_client = await self.get_client(session)
+        shopee_client = await shopee_svc.get_client(session)
+
+        meli_is_configured = bool(settings.TOKEN_ENCRYPTION_KEY) and (meli_client.is_configured() or bool(meli_cred and getattr(meli_cred, "app_id", None) and getattr(meli_cred, "app_secret_encrypted", None)))
+        shopee_is_configured = bool(settings.TOKEN_ENCRYPTION_KEY) and (shopee_client.is_configured() or bool(shopee_cred and getattr(shopee_cred, "app_id", None) and getattr(shopee_cred, "app_secret_encrypted", None)))
+
         channels = [
             MarketplaceChannelStatus(
                 marketplace="MERCADO_LIVRE",
                 name="Mercado Livre",
-                is_configured=self.client.is_configured() and bool(settings.TOKEN_ENCRYPTION_KEY),
+                is_configured=meli_is_configured,
                 is_connected=bool(meli_connected),
                 accounts_count=len(meli_connected),
                 auth_url=None,
@@ -98,7 +204,7 @@ class MercadoLivreService:
             MarketplaceChannelStatus(
                 marketplace="SHOPEE",
                 name="Shopee",
-                is_configured=shopee_client.is_configured() and bool(settings.TOKEN_ENCRYPTION_KEY),
+                is_configured=shopee_is_configured,
                 is_connected=bool(shopee_connected),
                 accounts_count=len(shopee_connected),
                 auth_url=None,
@@ -116,8 +222,9 @@ class MercadoLivreService:
             raise HTTPException(400, "Autorização expirada ou inválida. Inicie novamente.")
         attempt.consumed_at = datetime.now(timezone.utc)
         await session.commit()
-        token_data = await self.client.exchange_code_for_token(code)
-        user = await self.client.get_user_info(token_data["access_token"])
+        client = await self.get_client(session)
+        token_data = await client.exchange_code_for_token(code)
+        user = await client.get_user_info(token_data["access_token"])
         if not user.get("nickname") or user.get("site_id") != "MLB" or str(user.get("id")) != str(token_data["user_id"]):
             raise HTTPException(422, "A conta não possui identificação MLB confirmada.")
         account = await self.repo.upsert_account(session, "MERCADO_LIVRE", str(user["id"]), user["nickname"],
